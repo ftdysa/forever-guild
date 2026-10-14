@@ -130,3 +130,12 @@ test("logout clears the cookie", async () => {
   assert.ok(c);
   assert.equal(c.value, "");
 });
+
+test("style.css and app.js are served", async () => {
+  const css = await app.inject({ method: "GET", url: "/style.css" });
+  assert.equal(css.statusCode, 200);
+  assert.match(css.headers["content-type"] as string, /text\/css/);
+  const js = await app.inject({ method: "GET", url: "/app.js" });
+  assert.equal(js.statusCode, 200);
+  assert.match(js.body, /api\/game-data/);
+});

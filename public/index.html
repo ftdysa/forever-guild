@@ -1,1 +1,124 @@
-<!doctype html><html><head><meta charset="utf-8"><title>WoW Forever Guild Roster</title></head><body>roster</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WoW Forever Guild Roster</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="masthead">
+    <h1>WoW Forever</h1>
+    <p class="subtitle">Guild Roster &amp; Profession Ledger</p>
+  </header>
+
+  <main id="app">
+    <!-- Gate -->
+    <section id="gate" class="panel gate hidden">
+      <h2>Guild Hall</h2>
+      <p>Speak the guild passphrase to enter.</p>
+      <form id="gate-form">
+        <label>
+          <span>Passphrase</span>
+          <input id="gate-pass" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="gate-error" class="error hidden" role="alert"></p>
+        <button type="submit" class="btn">Enter the Guild Hall</button>
+      </form>
+    </section>
+
+    <!-- Roster -->
+    <section id="roster" class="hidden">
+      <div class="toolbar">
+        <button id="add-btn" class="btn">Add Member</button>
+        <button id="logout-btn" class="btn btn-ghost">Leave Hall</button>
+      </div>
+
+      <section class="panel coverage" aria-label="Coverage">
+        <h2>Coverage</h2>
+        <div id="role-coverage" class="coverage-row"></div>
+        <div id="prof-coverage" class="coverage-row"></div>
+      </section>
+
+      <section class="panel" aria-label="Roster">
+        <h2>Roster</h2>
+        <p id="empty-msg" class="muted hidden">No members yet. Be the first to sign the ledger.</p>
+        <table id="roster-table" class="roster">
+          <thead>
+            <tr>
+              <th>Character</th>
+              <th>Main</th>
+              <th>Backup</th>
+              <th>Primaries</th>
+              <th>Secondaries</th>
+              <th>Notes</th>
+              <th class="actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="roster-body"></tbody>
+        </table>
+      </section>
+    </section>
+  </main>
+
+  <!-- Drawer -->
+  <aside id="drawer" class="drawer hidden" aria-hidden="true">
+    <div class="panel drawer-panel">
+      <h2 id="drawer-title">Add Member</h2>
+      <form id="member-form">
+        <input type="hidden" id="f-id" />
+        <label><span>Character name</span><input id="f-name" required maxlength="24" /></label>
+
+        <fieldset>
+          <legend>Main</legend>
+          <label><span>Class</span><select id="f-main-class" required></select></label>
+          <label><span>Spec</span><select id="f-main-spec" required></select></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Backup</legend>
+          <label><span>Class</span><select id="f-backup-class"></select></label>
+          <label><span>Spec</span><select id="f-backup-spec"></select></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Primary professions</legend>
+          <label><span>First</span><select id="f-prim-1" required></select></label>
+          <label><span>Second</span><select id="f-prim-2" required></select></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Secondary professions</legend>
+          <div id="f-secondaries" class="checks"></div>
+        </fieldset>
+
+        <label><span>Notes</span><textarea id="f-notes" maxlength="280" rows="3"></textarea></label>
+
+        <ul id="form-errors" class="error hidden" role="alert"></ul>
+
+        <div class="drawer-actions">
+          <button type="button" id="cancel-btn" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </aside>
+
+  <!-- Delete dialog -->
+  <dialog id="confirm" class="confirm">
+    <div class="panel">
+      <h2>Remove from roster?</h2>
+      <p id="confirm-text"></p>
+      <div class="drawer-actions">
+        <button type="button" id="confirm-cancel" class="btn btn-ghost">Keep</button>
+        <button type="button" id="confirm-ok" class="btn btn-danger">Remove</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
