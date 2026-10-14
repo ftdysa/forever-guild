@@ -85,6 +85,8 @@ test("secondary profession rules", () => {
   assert.ok(errorsOf({ ...good, secondaryProfessions: ["cooking", "cooking"] }).includes("secondaryProfessions must be distinct secondary professions"));
   assert.ok(errorsOf({ ...good, secondaryProfessions: ["alchemy"] }).includes("secondaryProfessions must be distinct secondary professions"));
   assert.ok(errorsOf({ ...good, secondaryProfessions: "cooking" }).includes("secondaryProfessions must be distinct secondary professions"));
+  assert.ok(errorsOf({ ...good, secondaryProfessions: ["cooking", "fishing", "first-aid", "cooking"] }).includes("secondaryProfessions must be distinct secondary professions"));
+  // 4 entries: rejected by the length cap before the distinct check
   assert.ok(validateMember({ ...good, secondaryProfessions: undefined }).ok);
 });
 
