@@ -61,6 +61,7 @@ test("members routes require session", async () => {
     ["POST", "/api/members"],
     ["PUT", "/api/members/1"],
     ["DELETE", "/api/members/1"],
+    ["POST", "/api/logout"],
   ] as const) {
     const res = await app.inject({ method, url, payload: method === "GET" || method === "DELETE" ? undefined : thrall });
     assert.equal(res.statusCode, 401, `${method} ${url}`);

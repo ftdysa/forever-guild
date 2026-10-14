@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import type { Config } from "./config.js";
 import { MemberStore } from "./db.js";
 import { gameData } from "./game-data.js";
-import { authRoutes, SESSION_COOKIE } from "./routes/auth.js";
+import { loginRoute, logoutRoute, SESSION_COOKIE } from "./routes/auth.js";
 import { memberRoutes } from "./routes/members.js";
 
 declare module "fastify" {
@@ -38,7 +38,7 @@ export function buildApp(config: Config): FastifyInstance {
   app.register(
     async (api) => {
       api.get("/game-data", async () => gameData());
-      api.register(authRoutes);
+      api.register(loginRoute);
       api.register(async (secured) => {
         secured.addHook("onRequest", async (req, reply) => {
           const raw = req.cookies[SESSION_COOKIE];
@@ -46,6 +46,7 @@ export function buildApp(config: Config): FastifyInstance {
           const { valid } = req.unsignCookie(raw);
           if (!valid) return reply.code(401).send({ error: "unauthorized" });
         });
+        secured.register(logoutRoute);
         secured.register(memberRoutes);
       });
     },

@@ -9,7 +9,7 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-export const authRoutes: FastifyPluginCallback = (app, _opts, done) => {
+export const loginRoute: FastifyPluginCallback = (app, _opts, done) => {
   app.post<{ Body: { passphrase?: unknown } }>("/login", async (req, reply) => {
     const passphrase = req.body?.passphrase;
     if (typeof passphrase !== "string") {
@@ -28,6 +28,10 @@ export const authRoutes: FastifyPluginCallback = (app, _opts, done) => {
     return reply.code(204).send();
   });
 
+  done();
+};
+
+export const logoutRoute: FastifyPluginCallback = (app, _opts, done) => {
   app.post("/logout", async (_req, reply) => {
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return reply.code(204).send();
