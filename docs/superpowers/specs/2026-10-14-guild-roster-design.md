@@ -162,7 +162,7 @@ Single page, three regions:
 
 ## Deployment
 
-- `Dockerfile`: node:22-alpine, `npm ci`, `tsc`, run `dist/server.js`.
+- `Dockerfile`: node:22-bookworm-slim (glibc, so better-sqlite3 prebuilt binaries work), `npm ci`, `tsc`, run `dist/server.js`.
 - `docker-compose.yml`: one service, env from `.env`, volume `./data:/data`,
   `DB_PATH=/data/roster.db`.
 - `.env.example` lists the three required vars.
