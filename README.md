@@ -11,6 +11,10 @@ cp .env.example .env   # set GUILD_PASSPHRASE and a long random SESSION_SECRET
 docker compose up -d --build
 ```
 
+SESSION_SECRET must be at least 32 characters (`openssl rand -hex 32`).
+Changing GUILD_PASSPHRASE does not log anyone out; rotate SESSION_SECRET to
+invalidate all sessions.
+
 Open http://localhost:3000. Data persists in `./data/roster.db`.
 
 ## Run locally
@@ -44,7 +48,13 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | PUT    | /api/members/:id   | replace → 200                       |
 | DELETE | /api/members/:id   | → 204                               |
 
-Errors: `{ error, details? }` with 400 / 401 / 404 / 409.
+Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 500.
+
+## Security notes
+
+- Serve behind a TLS reverse proxy for anything beyond localhost.
+- Set `COOKIE_SECURE=true` and `TRUST_PROXY=true` when doing so.
+- Login is rate-limited to 10 attempts per minute per IP.
 
 ## Design
 

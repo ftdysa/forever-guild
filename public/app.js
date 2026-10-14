@@ -178,7 +178,15 @@ async function loadMembers() {
     showGate();
     return false;
   }
+  if (!r.ok) {
+    members = [];
+    $("#empty-msg").textContent = "The ledger could not be read. Try again shortly.";
+    renderRoster();
+    showRoster();
+    return false;
+  }
   members = r.data ?? [];
+  $("#empty-msg").textContent = "No members yet. Be the first to sign the ledger.";
   renderRoster();
   showRoster();
   return true;
@@ -201,7 +209,13 @@ $("#gate-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const r = await api("POST", "/api/login", { passphrase: $("#gate-pass").value });
   if (!r.ok) {
-    showGate("The guild does not recognize that passphrase.");
+    const msg =
+      r.status === 401
+        ? "The guild does not recognize that passphrase."
+        : r.status === 429
+          ? "Too many attempts. Wait a minute and try again."
+          : "Something went wrong. Try again shortly.";
+    showGate(msg);
     return;
   }
   $("#gate-pass").value = "";
@@ -251,6 +265,7 @@ $("#confirm-ok").addEventListener("click", async () => {
   $("#confirm").close();
   const r = await api("DELETE", `/api/members/${id}`);
   if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
+  // 404 means already removed; reload reflects reality
   await loadMembers();
 });
 
@@ -261,6 +276,10 @@ document.addEventListener("keydown", (e) => {
 // ---------- Boot ----------
 (async function boot() {
   const r = await api("GET", "/api/game-data");
+  if (!r.ok || !r.data) {
+    showGate("The guild hall is unreachable right now.");
+    return;
+  }
   game = r.data;
   initForm();
   await loadMembers();

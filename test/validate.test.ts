@@ -74,6 +74,11 @@ test("backup rules", () => {
   assert.equal(r.value.backupSpec, null);
 });
 
+test("backup fields must be a string or null", () => {
+  assert.ok(errorsOf({ ...good, backupClass: 5 }).includes("backupClass must be a string or null"));
+  assert.ok(errorsOf({ ...good, backupSpec: 5 }).includes("backupSpec must be a string or null"));
+});
+
 test("primary profession rules", () => {
   assert.ok(errorsOf({ ...good, primaryProfessions: ["alchemy"] }).includes("primaryProfessions must be exactly 2 distinct primary professions"));
   assert.ok(errorsOf({ ...good, primaryProfessions: ["alchemy", "alchemy"] }).includes("primaryProfessions must be exactly 2 distinct primary professions"));
