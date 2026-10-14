@@ -3,6 +3,7 @@ export interface Config {
   dbPath: string;
   guildPassphrase: string;
   sessionSecret: string;
+  cookieSecure: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -24,5 +25,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dbPath: env.DB_PATH || "./data/roster.db",
     guildPassphrase: env.GUILD_PASSPHRASE as string,
     sessionSecret,
+    cookieSecure: env.COOKIE_SECURE === "true",
   };
 }

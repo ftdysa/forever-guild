@@ -62,7 +62,7 @@ function rowToMember(r: Row): Member {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  return err instanceof Error && /UNIQUE constraint failed/.test(err.message);
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE";
 }
 
 export class MemberStore {

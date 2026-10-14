@@ -4,7 +4,7 @@ import { buildApp } from "../src/app.js";
 import type { FastifyInstance } from "fastify";
 
 const PASS = "for-the-horde";
-const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40) };
+const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
 
 const thrall = {
   characterName: "Thrall",
@@ -116,6 +116,36 @@ test("duplicate name is 409", async () => {
   assert.deepEqual(b.json(), { error: "character name already taken" });
 });
 
+test("malformed JSON body is 400", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/members",
+    cookies: cookie,
+    headers: { "content-type": "application/json" },
+    payload: "{bad json",
+  });
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.json(), { error: "bad request" });
+});
+
+test("unsupported media type is 415", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/members",
+    cookies: cookie,
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    payload: "a=b",
+  });
+  assert.equal(res.statusCode, 415);
+  assert.deepEqual(res.json(), { error: "unsupported media type" });
+});
+
+test("unknown route is 404 with error body", async () => {
+  const res = await app.inject({ method: "GET", url: "/api/nope", cookies: cookie });
+  assert.equal(res.statusCode, 404);
+  assert.deepEqual(res.json(), { error: "not found" });
+});
+
 test("unknown id is 404, bad id is 400", async () => {
   const res = await app.inject({ method: "PUT", url: "/api/members/99999", cookies: cookie, payload: thrall });
   assert.equal(res.statusCode, 404);
@@ -138,4 +168,15 @@ test("style.css and app.js are served", async () => {
   const js = await app.inject({ method: "GET", url: "/app.js" });
   assert.equal(js.statusCode, 200);
   assert.match(js.body, /api\/game-data/);
+});
+
+test("login is rate-limited after repeated failures", async () => {
+  const app2 = buildApp(config);
+  await app2.ready();
+  let res;
+  for (let i = 0; i < 11; i++) {
+    res = await app2.inject({ method: "POST", url: "/api/login", payload: { passphrase: "wrong" } });
+  }
+  assert.equal(res!.statusCode, 429);
+  await app2.close();
 });

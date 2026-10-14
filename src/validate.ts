@@ -40,6 +40,13 @@ export function validateMember(input: unknown): ValidationResult {
   if (!findClass(mainClass)) errors.push("mainClass is not a known class");
   else if (!findSpec(mainClass, mainSpec)) errors.push("mainSpec does not belong to mainClass");
 
+  if (raw.backupClass !== undefined && raw.backupClass !== null && typeof raw.backupClass !== "string") {
+    errors.push("backupClass must be a string or null");
+  }
+  if (raw.backupSpec !== undefined && raw.backupSpec !== null && typeof raw.backupSpec !== "string") {
+    errors.push("backupSpec must be a string or null");
+  }
+
   let backupClass: string | null = typeof raw.backupClass === "string" && raw.backupClass !== "" ? raw.backupClass : null;
   let backupSpec: string | null = typeof raw.backupSpec === "string" && raw.backupSpec !== "" ? raw.backupSpec : null;
   if (backupClass === null) {

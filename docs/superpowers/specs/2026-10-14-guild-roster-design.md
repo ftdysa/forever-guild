@@ -55,6 +55,10 @@ of truth.
   requires a valid signed cookie, else 401 `{ error: "unauthorized" }`.
 - Sessions are stateless (signed cookie only). Rotating `SESSION_SECRET`
   logs everyone out.
+- `POST /api/login` is rate-limited to 10 attempts per minute per IP via
+  @fastify/rate-limit.
+- Cookie `secure` flag is controlled by `COOKIE_SECURE`; `TRUST_PROXY`
+  enables proxy-aware client IPs.
 
 ## Data model
 
@@ -149,6 +153,9 @@ Single page, three regions:
 - SQLite UNIQUE violation on `character_name` maps to 409.
 - Missing `GUILD_PASSPHRASE` or `SESSION_SECRET` fails startup with a clear
   message.
+- Unknown routes return 404 `{ error: "not found" }`; other 4xx from the
+  framework (413, 415, malformed JSON) keep their status with an
+  `{ error }` body.
 
 ## Testing
 
@@ -165,7 +172,8 @@ Single page, three regions:
 - `Dockerfile`: node:22-bookworm-slim (glibc, so better-sqlite3 prebuilt binaries work), `npm ci`, `tsc`, run `dist/server.js`.
 - `docker-compose.yml`: one service, env from `.env`, volume `./data:/data`,
   `DB_PATH=/data/roster.db`.
-- `.env.example` lists the three required vars.
+- `.env.example` lists the required vars (GUILD_PASSPHRASE, SESSION_SECRET)
+  and optional ones (PORT, DB_PATH, COOKIE_SECURE, TRUST_PROXY).
 
 ## Out of scope
 

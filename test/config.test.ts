@@ -7,6 +7,12 @@ test("loads with defaults", () => {
   assert.equal(c.port, 3000);
   assert.equal(c.dbPath, "./data/roster.db");
   assert.equal(c.guildPassphrase, "pw");
+  assert.equal(c.cookieSecure, false);
+});
+
+test("honours COOKIE_SECURE", () => {
+  const c = loadConfig({ GUILD_PASSPHRASE: "pw", SESSION_SECRET: "s".repeat(32), COOKIE_SECURE: "true" });
+  assert.equal(c.cookieSecure, true);
 });
 
 test("honours PORT and DB_PATH", () => {
