@@ -15,6 +15,7 @@ export type ValidationResult = { ok: true; value: MemberInput } | { ok: false; e
 
 const NAME_RE = /^\p{L}{2,24}$/u;
 const NOTES_MAX = 280;
+const SECONDARY_MAX = 3;
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -65,7 +66,7 @@ export function validateMember(input: unknown): ValidationResult {
 
   const secondaryRaw = raw.secondaryProfessions === undefined ? [] : raw.secondaryProfessions;
   const secondaryProfessions = isStringArray(secondaryRaw) ? secondaryRaw : null;
-  if (!secondaryProfessions || !distinct(secondaryProfessions) || !secondaryProfessions.every((p) => SECONDARY_IDS.includes(p))) {
+  if (!secondaryProfessions || secondaryProfessions.length > SECONDARY_MAX || !distinct(secondaryProfessions) || !secondaryProfessions.every((p) => SECONDARY_IDS.includes(p))) {
     errors.push("secondaryProfessions must be distinct secondary professions");
   }
 
