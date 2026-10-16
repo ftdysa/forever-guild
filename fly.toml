@@ -16,6 +16,8 @@ primary_region = 'iad'
   DB_PATH = '/data/roster.db'
   COOKIE_SECURE = 'true'
   TRUST_PROXY = 'true'
+  # Fly's proxy sets this to the real client address; rate limiting keys on it.
+  CLIENT_IP_HEADER = 'fly-client-ip'
 
 [[mounts]]
   source = 'data'

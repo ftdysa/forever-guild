@@ -74,13 +74,16 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE";
 }
 
-export class MemberStore {
-  private db: Database.Database;
+// One connection per process, shared by every store; the caller owns closing it.
+export function openDatabase(dbPath: string): Database.Database {
+  if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  return db;
+}
 
-  constructor(dbPath: string) {
-    if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma("journal_mode = WAL");
+export class MemberStore {
+  constructor(private db: Database.Database) {
     this.db.exec(SCHEMA);
     this.migrate();
   }
@@ -152,11 +155,11 @@ export class MemberStore {
     }
   }
 
-  delete(id: number): boolean {
-    return this.db.prepare("DELETE FROM members WHERE id = ?").run(id).changes > 0;
-  }
-
-  close(): void {
-    this.db.close();
+  // Returns the deleted member's name, or undefined if there was no such member.
+  delete(id: number): string | undefined {
+    const row = this.db.prepare("DELETE FROM members WHERE id = ? RETURNING character_name").get(id) as
+      | { character_name: string }
+      | undefined;
+    return row?.character_name;
   }
 }

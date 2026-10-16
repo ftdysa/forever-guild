@@ -41,7 +41,7 @@ function classCell(classId, specId) {
   const c = classById(classId);
   const s = specOf(classId, specId);
   const badge = s ? `<span class="badge">${ICONS[s.role]}${ROLE_LABEL[s.role]}</span>` : "";
-  return `<span class="cls" style="color:${c.color}">${esc(c.name)}</span>${badge}<br><span class="spec">${esc(s?.name ?? specId)}</span>`;
+  return `<span class="cls" data-class="${esc(c.id)}">${esc(c.name)}</span>${badge}<br><span class="spec">${esc(s?.name ?? specId)}</span>`;
 }
 
 function sweatCell(id) {
@@ -119,6 +119,8 @@ function renderRoster() {
     </tr>`,
     )
     .join("");
+  // Colours are set via the DOM rather than inline style="" so the CSP needs no 'unsafe-inline'.
+  for (const el of body.querySelectorAll(".cls[data-class]")) el.style.color = classById(el.dataset.class).color;
   renderCoverage();
 }
 

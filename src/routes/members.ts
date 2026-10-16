@@ -1,6 +1,7 @@
 import type { FastifyPluginCallback } from "fastify";
 import { validateMember } from "../validate.js";
 import { DuplicateNameError } from "../db.js";
+import { audit } from "../audit.js";
 
 function parseId(raw: string): number | null {
   if (!/^\d+$/.test(raw)) return null;
@@ -14,7 +15,9 @@ export const memberRoutes: FastifyPluginCallback = (app, _opts, done) => {
     const v = validateMember(req.body);
     if (!v.ok) return reply.code(400).send({ error: "validation failed", details: v.errors });
     try {
-      return reply.code(201).send(app.store.create(v.value));
+      const created = app.store.create(v.value);
+      audit(req, "member.create", { memberId: created.id, characterName: created.characterName });
+      return reply.code(201).send(created);
     } catch (err) {
       if (err instanceof DuplicateNameError) return reply.code(409).send({ error: err.message });
       throw err;
@@ -29,6 +32,7 @@ export const memberRoutes: FastifyPluginCallback = (app, _opts, done) => {
     try {
       const updated = app.store.update(id, v.value);
       if (!updated) return reply.code(404).send({ error: "not found" });
+      audit(req, "member.update", { memberId: id, characterName: updated.characterName });
       return updated;
     } catch (err) {
       if (err instanceof DuplicateNameError) return reply.code(409).send({ error: err.message });
@@ -39,7 +43,9 @@ export const memberRoutes: FastifyPluginCallback = (app, _opts, done) => {
   app.delete<{ Params: { id: string } }>("/members/:id", async (req, reply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.code(400).send({ error: "invalid id" });
-    if (!app.store.delete(id)) return reply.code(404).send({ error: "not found" });
+    const characterName = app.store.delete(id);
+    if (characterName === undefined) return reply.code(404).send({ error: "not found" });
+    audit(req, "member.delete", { memberId: id, characterName });
     return reply.code(204).send();
   });
 

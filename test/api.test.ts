@@ -1,7 +1,11 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../src/app.js";
+import { sessionCookieName } from "../src/routes/auth.js";
 import type { FastifyInstance } from "fastify";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const PASS = "for-the-horde";
 const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
@@ -20,16 +24,32 @@ const thrall = {
 };
 
 let app: FastifyInstance;
-let cookie: { session: string };
+let cookie: Record<string, string>;
+
+// Logs in and returns the session cookie, ready to pass as `cookies`.
+async function login(a: FastifyInstance): Promise<Record<string, string>> {
+  const res = await a.inject({ method: "POST", url: "/api/login", payload: { passphrase: PASS } });
+  assert.equal(res.statusCode, 204);
+  const name = sessionCookieName(a.config.cookieSecure);
+  const c = res.cookies.find((x) => x.name === name);
+  assert.ok(c);
+  assert.equal(c.secure ?? false, a.config.cookieSecure);
+  return { [name]: c.value };
+}
+
+async function failLogins(a: FastifyInstance, n: number, headers: (i: number) => Record<string, string> = () => ({})) {
+  const codes: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const res = await a.inject({ method: "POST", url: "/api/login", headers: headers(i), payload: { passphrase: "wrong" } });
+    codes.push(res.statusCode);
+  }
+  return codes;
+}
 
 before(async () => {
   app = buildApp(config);
   await app.ready();
-  const res = await app.inject({ method: "POST", url: "/api/login", payload: { passphrase: PASS } });
-  assert.equal(res.statusCode, 204);
-  const c = res.cookies.find((x) => x.name === "session");
-  assert.ok(c);
-  cookie = { session: c.value };
+  cookie = await login(app);
 });
 after(async () => app.close());
 
@@ -165,6 +185,8 @@ test("logout clears the cookie", async () => {
   const c = res.cookies.find((x) => x.name === "session");
   assert.ok(c);
   assert.equal(c.value, "");
+  const reused = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
+  assert.equal(reused.statusCode, 401, "logged-out session must be revoked server-side");
 });
 
 test("style.css and app.js are served", async () => {
@@ -179,10 +201,62 @@ test("style.css and app.js are served", async () => {
 test("login is rate-limited after repeated failures", async () => {
   const app2 = buildApp(config);
   await app2.ready();
-  let res;
-  for (let i = 0; i < 11; i++) {
-    res = await app2.inject({ method: "POST", url: "/api/login", payload: { passphrase: "wrong" } });
-  }
-  assert.equal(res!.statusCode, 429);
+  assert.equal((await failLogins(app2, 11)).at(-1), 429);
   await app2.close();
+});
+
+test("spoofed X-Forwarded-For does not bypass the login rate limit behind a proxy", async () => {
+  const a = buildApp({ ...config, trustProxy: true });
+  await a.ready();
+  const codes = await failLogins(a, 11, (i) => ({ "x-forwarded-for": `10.0.0.${i}, 203.0.113.7` }));
+  assert.equal(codes.at(-1), 429);
+  await a.close();
+});
+
+test("rate limit keys on CLIENT_IP_HEADER when configured", async () => {
+  const a = buildApp({ ...config, clientIpHeader: "fly-client-ip" });
+  await a.ready();
+  const same = await failLogins(a, 11, (i) => ({ "fly-client-ip": "203.0.113.7", "x-forwarded-for": `10.0.0.${i}` }));
+  assert.equal(same.at(-1), 429);
+  const other = await failLogins(a, 1, () => ({ "fly-client-ip": "203.0.113.8" }));
+  assert.equal(other[0], 401);
+  await a.close();
+});
+
+test("changing the passphrase revokes existing sessions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "roster-"));
+  const fileConfig = { ...config, dbPath: join(dir, "roster.db") };
+  try {
+    const a = buildApp(fileConfig);
+    const session = await login(a);
+    await a.close();
+
+    const same = buildApp(fileConfig);
+    assert.equal((await same.inject({ method: "GET", url: "/api/members", cookies: session })).statusCode, 200);
+    await same.close();
+
+    const changed = buildApp({ ...fileConfig, guildPassphrase: "a-brand-new-passphrase" });
+    assert.equal((await changed.inject({ method: "GET", url: "/api/members", cookies: session })).statusCode, 401);
+    await changed.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("secure mode uses a __Host- cookie", async () => {
+  const a = buildApp({ ...config, cookieSecure: true });
+  const session = await login(a);
+  assert.deepEqual(Object.keys(session), ["__Host-session"]);
+  const members = await a.inject({ method: "GET", url: "/api/members", cookies: session });
+  assert.equal(members.statusCode, 200);
+  await a.close();
+});
+
+test("security headers are set", async () => {
+  const res = await app.inject({ method: "GET", url: "/" });
+  const csp = res.headers["content-security-policy"] as string;
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /script-src 'self'/);
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  assert.equal(res.headers["x-content-type-options"], "nosniff");
 });

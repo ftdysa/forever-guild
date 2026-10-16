@@ -4,12 +4,23 @@ export interface Config {
   guildPassphrase: string;
   sessionSecret: string;
   cookieSecure: boolean;
+  // Trust exactly one reverse proxy hop when resolving req.ip.
+  trustProxy?: boolean;
+  // Header set by the edge proxy carrying the real client IP (e.g. fly-client-ip). Only set
+  // this when every request is guaranteed to pass through that proxy, or clients can spoof it.
+  clientIpHeader?: string;
 }
+
+const MIN_PASSPHRASE_LENGTH = 16;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const missing = ["GUILD_PASSPHRASE", "SESSION_SECRET"].filter((k) => !env[k]);
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
+  }
+  const guildPassphrase = env.GUILD_PASSPHRASE as string;
+  if (guildPassphrase.length < MIN_PASSPHRASE_LENGTH) {
+    throw new Error(`GUILD_PASSPHRASE must be at least ${MIN_PASSPHRASE_LENGTH} characters`);
   }
   const sessionSecret = env.SESSION_SECRET as string;
   if (sessionSecret.length < 32) {
@@ -23,8 +34,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     port,
     dbPath: env.DB_PATH || "./data/roster.db",
-    guildPassphrase: env.GUILD_PASSPHRASE as string,
+    guildPassphrase,
     sessionSecret,
     cookieSecure: env.COOKIE_SECURE === "true",
+    trustProxy: env.TRUST_PROXY === "true",
+    clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || undefined,
   };
 }
