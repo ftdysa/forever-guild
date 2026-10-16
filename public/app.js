@@ -227,6 +227,7 @@ async function loadMembers() {
     return false;
   }
   members = r.data ?? [];
+  guildRoster = null; // membership changed or reloaded: refetch so "On roster" flags stay current
   $("#empty-msg").textContent = "No members yet. Be the first to sign the ledger.";
   renderRoster();
   showRoster();
@@ -432,7 +433,6 @@ $("#member-form").addEventListener("submit", async (e) => {
   if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
   if (!r.ok) return showFormErrors(r.data?.details ?? [r.data?.error ?? "Something went wrong."]);
   closeDrawer();
-  guildRoster = null; // refetch so "On roster" flags stay current
   await loadMembers();
 });
 
