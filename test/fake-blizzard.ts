@@ -7,7 +7,9 @@ type Handler = (url: URL) => unknown;
 export function fakeBlizzard(routes: Record<string, unknown | { status: number } | Handler> = {}) {
   const calls: string[] = [];
   let tokenCount = 0;
-  const state = { tokenStatus: 200, apiDown: false, expiresIn: 86_400 };
+  // lastModified mimics Blizzard: every profile response carries the character's last-login
+  // time, and a matching If-Modified-Since gets 304.
+  const state = { tokenStatus: 200, apiDown: false, expiresIn: 86_400, lastModified: "Mon, 14 Sep 2026 00:55:35 GMT" };
 
   const fetchFn: FetchFn = async (input, init) => {
     const url = new URL(String(input));
@@ -23,10 +25,13 @@ export function fakeBlizzard(routes: Record<string, unknown | { status: number }
     const entry = routes[url.pathname];
     const route = typeof entry === "function" ? (entry as Handler)(url) : entry;
     if (route === undefined) return new Response("{}", { status: 404 });
+    if (new Headers(init?.headers).get("if-modified-since") === state.lastModified) {
+      return new Response(null, { status: 304 });
+    }
     if (typeof route === "object" && route !== null && "status" in route) {
       return new Response("{}", { status: (route as { status: number }).status });
     }
-    return Response.json(route);
+    return Response.json(route, { headers: { "last-modified": state.lastModified } });
   };
 
   return { fetchFn, calls, state, tokens: () => tokenCount };

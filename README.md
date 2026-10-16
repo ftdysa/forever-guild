@@ -70,8 +70,14 @@ Optional. With `BLIZZARD_*` set (see `.env.example`), the roster gets an
 item level, and a spec guessed from talent points.
 
 - Calls go server-side with client credentials; the secret never reaches the browser.
-- Responses are cached in SQLite (roster 6h, characters 3h). If Blizzard is down,
-  stale cache is served; without a cache the API returns 502.
+- Responses are cached in SQLite:
+  - Guild roster: 6h.
+  - Characters: no hard expiry. After 15 minutes a view sends one conditional
+    request (`If-Modified-Since`, which Blizzard ties to the character's last
+    login). 304 keeps the cache; 200 means they played, and the character is
+    refetched (5 profile calls + 1 icon search).
+  - Item icons: one media search per 100 uncached items, kept for a year.
+- If Blizzard is down, cached data is served; without a cache the API returns 502.
 - Classic Era has no professions endpoint, so professions stay manual there. On
   realms that expose it, import pre-fills them.
 - On Fly, set the credentials as secrets: `fly secrets set BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...`.
