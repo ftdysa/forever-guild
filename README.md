@@ -13,8 +13,9 @@ docker compose up -d --build
 ```
 
 SESSION_SECRET must be at least 32 characters (`openssl rand -hex 32`).
-Changing GUILD_PASSPHRASE does not log anyone out; rotate SESSION_SECRET to
-invalidate all sessions.
+GUILD_PASSPHRASE must be at least 16 characters. Sessions are stored server-side:
+logging out revokes the session, and changing GUILD_PASSPHRASE or SESSION_SECRET
+logs everyone out on the next restart.
 
 Open http://localhost:3000. Data persists in `./data/roster.db`.
 
@@ -63,7 +64,11 @@ Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 500.
 
 - Serve behind a TLS reverse proxy for anything beyond localhost.
 - Set `COOKIE_SECURE=true` and `TRUST_PROXY=true` when doing so.
-- Login is rate-limited to 10 attempts per minute per IP.
+- `TRUST_PROXY=true` trusts exactly one proxy hop. If your proxy sets a trusted
+  client-IP header (Fly sets `fly-client-ip`), set `CLIENT_IP_HEADER` to it instead.
+- Login is rate-limited to 10 attempts per minute per client IP.
+- Logins and member create/update/delete are logged with the client IP (`audit` field).
+- The container starts as root only to chown `/data`, then runs as `node`.
 
 ## Design
 
