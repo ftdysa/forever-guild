@@ -163,3 +163,42 @@ export class MemberStore {
     return row?.character_name;
   }
 }
+
+const CACHE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS armory_cache (
+  key TEXT PRIMARY KEY,
+  body TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
+);`;
+
+// JSON blobs from the Blizzard API, keyed by realm/guild/character.
+export class ArmoryCache {
+  private find: Database.Statement;
+  private upsert: Database.Statement;
+
+  constructor(db: Database.Database) {
+    db.exec(CACHE_SCHEMA);
+    this.find = db.prepare("SELECT body, fetched_at FROM armory_cache WHERE key = ?");
+    this.upsert = db.prepare("INSERT OR REPLACE INTO armory_cache (key, body, fetched_at) VALUES (?, ?, ?)");
+  }
+
+  get(key: string): { value: unknown; fetchedAt: number } | undefined {
+    const row = this.find.get(key) as { body: string; fetched_at: number } | undefined;
+    return row ? { value: JSON.parse(row.body), fetchedAt: row.fetched_at } : undefined;
+  }
+
+  set(key: string, value: unknown, now = Date.now()): void {
+    this.upsert.run(key, JSON.stringify(value), now);
+  }
+}
+
+// Removes every member and all cached armory data, e.g. when switching from a PoC guild
+// to the real one. Sessions are left alone so nobody is logged out.
+export function wipeGuildData(db: Database.Database): { members: number; cached: number } {
+  return db.transaction(() => {
+    const members = db.prepare("DELETE FROM members").run().changes;
+    const cached = db.prepare("DELETE FROM armory_cache").run().changes;
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'members'").run();
+    return { members, cached };
+  })();
+}

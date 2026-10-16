@@ -43,3 +43,20 @@ test("honours CLIENT_IP_HEADER, lowercased", () => {
   const c = loadConfig({ GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32), CLIENT_IP_HEADER: "Fly-Client-IP" });
   assert.equal(c.clientIpHeader, "fly-client-ip");
 });
+
+const BZ = { BLIZZARD_CLIENT_ID: "id", BLIZZARD_CLIENT_SECRET: "secret", BLIZZARD_REALM: "doomhowl", BLIZZARD_GUILD: "fatal" };
+
+test("blizzard config is optional and defaults to us / classic1x", () => {
+  assert.equal(loadConfig({ GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32) }).blizzard, undefined);
+  const c = loadConfig({ GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32), ...BZ });
+  assert.deepEqual(c.blizzard, { clientId: "id", clientSecret: "secret", region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" });
+});
+
+test("blizzard config rejects partial setup, bad region/namespace, and non-slug names", () => {
+  const env = { GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32) };
+  assert.throws(() => loadConfig({ ...env, BLIZZARD_CLIENT_ID: "id" }), /also set: BLIZZARD_CLIENT_SECRET, BLIZZARD_REALM, BLIZZARD_GUILD/);
+  assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_REGION: "cn" }), /BLIZZARD_REGION/);
+  assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_NAMESPACE: "wotlk" }), /BLIZZARD_NAMESPACE/);
+  assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_REALM: "Doom Howl" }), /slugs/);
+  assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_GUILD: "../x" }), /slugs/);
+});

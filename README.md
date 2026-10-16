@@ -57,8 +57,37 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | POST   | /api/members       | create → 201                        |
 | PUT    | /api/members/:id   | replace → 200                       |
 | DELETE | /api/members/:id   | → 204                               |
+| GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }` |
+| GET    | /api/armory/roster | guild members with `onRoster` flag; 404 when disabled |
+| GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown, 502 Blizzard down |
 
-Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 500.
+Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 429 / 500 / 502.
+
+## Armory (Blizzard API)
+
+Optional. With `BLIZZARD_*` set (see `.env.example`), the roster gets an
+"Import from Guild" button and character names open an armory view with gear,
+item level, and a spec guessed from talent points.
+
+- Calls go server-side with client credentials; the secret never reaches the browser.
+- Responses are cached in SQLite (roster 6h, characters 3h). If Blizzard is down,
+  stale cache is served; without a cache the API returns 502.
+- Classic Era has no professions endpoint, so professions stay manual there. On
+  realms that expose it, import pre-fills them.
+- On Fly, set the credentials as secrets: `fly secrets set BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...`.
+  Realm and guild live in `fly.toml` `[env]`.
+
+### Switching guilds / wiping PoC data
+
+`reset-data` deletes every member and all cached armory data. Sessions are kept.
+
+```bash
+npm run reset-data -- --yes                     # local, uses DB_PATH
+fly ssh console -C "setpriv --reuid=node --regid=node --init-groups node dist/reset-data.js --yes"
+```
+
+Run it as `node` on Fly (as above) so SQLite's WAL files stay owned by the app
+user. Then update `BLIZZARD_REALM` / `BLIZZARD_GUILD` and deploy.
 
 ## Security notes
 
@@ -68,6 +97,8 @@ Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 500.
   client-IP header (Fly sets `fly-client-ip`), set `CLIENT_IP_HEADER` to it instead.
 - Login is rate-limited to 10 attempts per minute per client IP.
 - Logins and member create/update/delete are logged with the client IP (`audit` field).
+- Armory character lookups are rate-limited to 60 per minute per client IP, and
+  names are validated (letters only) before any Blizzard call.
 - The container starts as root only to chown `/data`, then runs as `node`.
 
 ## Design

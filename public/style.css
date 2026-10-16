@@ -204,6 +204,57 @@ dialog.confirm { border: 0; background: transparent; padding: 0; }
 dialog.confirm::backdrop { background: rgba(0, 0, 0, 0.7); }
 dialog.confirm .panel { margin: 0; min-width: min(420px, 90vw); }
 
+/* Larger dialogs (import, armory) */
+dialog.modal { border: 0; background: transparent; padding: 0; color: var(--text); }
+dialog.modal::backdrop { background: rgba(0, 0, 0, 0.7); }
+.modal-panel {
+  margin: 0;
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-scroll { overflow-y: auto; min-height: 0; flex: 1; }
+.filters { display: flex; gap: 12px; }
+.filters label { flex: 1; margin: 0 0 8px; }
+.filters label:last-child { flex: 0 0 110px; }
+.import-table td { padding: 6px 8px; }
+.note {
+  font-style: italic;
+  color: var(--gold);
+  border-left: 2px solid var(--gold-dim);
+  padding-left: 10px;
+  margin: 0 0 8px;
+}
+
+/* Character names that open the armory */
+button.link {
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline dotted var(--gold-dim); text-underline-offset: 4px;
+}
+button.link:hover, button.link:focus-visible { outline: none; text-shadow: 0 0 10px rgba(240, 215, 140, 0.6); }
+
+/* Armory */
+.armory-head { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+.armory-head h2 { border: 0; margin: 0; padding: 0; }
+.armory-head p { margin: 2px 0; }
+.avatar { border: 2px solid var(--gold); box-shadow: 0 0 0 1px #000, 0 0 12px rgba(0, 0, 0, 0.8); }
+.gear { list-style: none; margin: 0; padding: 0; overflow-y: auto; columns: 2 260px; column-gap: 24px; }
+.gear li { break-inside: avoid; padding: 4px 0; border-bottom: 1px solid rgba(107, 90, 51, 0.35); }
+.gear .slot { display: block; font-family: var(--font-head); font-size: 11px; font-variant: small-caps; color: var(--muted); }
+.gear a { text-decoration: none; font-weight: 600; }
+.gear a:hover, .gear a:focus-visible { text-decoration: underline; }
+
+/* WoW item quality colours */
+.q-poor { color: #9d9d9d; }
+.q-common { color: #ffffff; }
+.q-uncommon { color: #1eff00; }
+.q-rare { color: #0070dd; }
+.q-epic { color: #a335ee; }
+.q-legendary { color: #ff8000; }
+.q-artifact { color: #e6cc80; }
+.q-heirloom { color: #00ccff; }
+
 /* Mobile: table to cards */
 @media (max-width: 720px) {
   body { font-size: 16px; }
