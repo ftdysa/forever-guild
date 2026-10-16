@@ -8,6 +8,8 @@ import {
   findClass,
   findSpec,
   gameData,
+  SWEAT_FACTORS,
+  LEVELING_PREFS,
 } from "../src/game-data.js";
 
 test("has 9 classes with 3 specs each and a role on every spec", () => {
@@ -44,8 +46,15 @@ test("findClass / findSpec", () => {
   assert.equal(findSpec("nope", "protection"), undefined);
 });
 
-test("gameData returns classes and professions", () => {
+test("sweat factors and leveling prefs are ordered as specified", () => {
+  assert.deepEqual(SWEAT_FACTORS.map((c) => c.id), ["meh", "casual", "interested", "sweaty", "world-first"]);
+  assert.deepEqual(LEVELING_PREFS.map((c) => c.id), ["solo", "duo", "orgy"]);
+});
+
+test("gameData returns classes, professions, and preference choices", () => {
   const d = gameData();
   assert.equal(d.classes.length, 9);
   assert.equal(d.professions.length, 12);
+  assert.equal(d.sweatFactors, SWEAT_FACTORS);
+  assert.equal(d.levelingPrefs, LEVELING_PREFS);
 });

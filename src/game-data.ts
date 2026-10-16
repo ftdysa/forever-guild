@@ -19,6 +19,11 @@ export interface Profession {
   kind: "primary" | "secondary";
 }
 
+export interface Choice {
+  id: string;
+  name: string;
+}
+
 const spec = (id: string, name: string, role: Role): Spec => ({ id, name, role });
 
 export const CLASSES: GameClass[] = [
@@ -93,6 +98,20 @@ export const PROFESSIONS: Profession[] = [
   { id: "first-aid", name: "First Aid", kind: "secondary" },
 ];
 
+export const SWEAT_FACTORS: Choice[] = [
+  { id: "meh", name: "Meh" },
+  { id: "casual", name: "Casual" },
+  { id: "interested", name: "Interested" },
+  { id: "sweaty", name: "Sweaty" },
+  { id: "world-first", name: "World First" },
+];
+
+export const LEVELING_PREFS: Choice[] = [
+  { id: "solo", name: "Solo" },
+  { id: "duo", name: "Duo" },
+  { id: "orgy", name: "Orgy" },
+];
+
 export const PRIMARY_IDS: string[] = PROFESSIONS.filter((p) => p.kind === "primary").map((p) => p.id);
 export const SECONDARY_IDS: string[] = PROFESSIONS.filter((p) => p.kind === "secondary").map((p) => p.id);
 
@@ -104,6 +123,11 @@ export function findSpec(classId: string, specId: string): Spec | undefined {
   return findClass(classId)?.specs.find((s) => s.id === specId);
 }
 
-export function gameData(): { classes: GameClass[]; professions: Profession[] } {
-  return { classes: CLASSES, professions: PROFESSIONS };
+export function gameData(): {
+  classes: GameClass[];
+  professions: Profession[];
+  sweatFactors: Choice[];
+  levelingPrefs: Choice[];
+} {
+  return { classes: CLASSES, professions: PROFESSIONS, sweatFactors: SWEAT_FACTORS, levelingPrefs: LEVELING_PREFS };
 }

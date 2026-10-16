@@ -14,6 +14,8 @@ const thrall = {
   backupSpec: "protection",
   primaryProfessions: ["alchemy", "herbalism"],
   secondaryProfessions: ["cooking"],
+  sweatFactor: "casual",
+  levelingPref: "duo",
   notes: "",
 };
 
@@ -35,6 +37,8 @@ test("game-data is public", async () => {
   const res = await app.inject({ method: "GET", url: "/api/game-data" });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().classes.length, 9);
+  assert.equal(res.json().sweatFactors.length, 5);
+  assert.equal(res.json().levelingPrefs.length, 3);
 });
 
 test("index.html is served", async () => {
@@ -76,6 +80,8 @@ test("create, list, update, delete", async () => {
   const m = created.json();
   assert.equal(m.characterName, "Thrall");
   assert.equal(typeof m.id, "number");
+  assert.equal(m.sweatFactor, "casual");
+  assert.equal(m.levelingPref, "duo");
 
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
   assert.equal(list.statusCode, 200);

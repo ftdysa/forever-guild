@@ -25,6 +25,8 @@ interface Row {
   backup_spec: string | null;
   primary_professions: string;
   secondary_professions: string;
+  sweat_factor: string | null;
+  leveling_pref: string | null;
   notes: string;
   created_at: string;
   updated_at: string;
@@ -40,10 +42,15 @@ CREATE TABLE IF NOT EXISTS members (
   backup_spec TEXT,
   primary_professions TEXT NOT NULL,
   secondary_professions TEXT NOT NULL,
+  sweat_factor TEXT,
+  leveling_pref TEXT,
   notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );`;
+
+// Columns added after the initial schema; ALTERed into existing databases on startup.
+const ADDED_COLUMNS = ["sweat_factor", "leveling_pref"];
 
 function rowToMember(r: Row): Member {
   return {
@@ -55,6 +62,8 @@ function rowToMember(r: Row): Member {
     backupSpec: r.backup_spec,
     primaryProfessions: JSON.parse(r.primary_professions) as string[],
     secondaryProfessions: JSON.parse(r.secondary_professions) as string[],
+    sweatFactor: r.sweat_factor,
+    levelingPref: r.leveling_pref,
     notes: r.notes,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -73,6 +82,14 @@ export class MemberStore {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const existing = new Set((this.db.pragma("table_info(members)") as { name: string }[]).map((c) => c.name));
+    for (const col of ADDED_COLUMNS) {
+      if (!existing.has(col)) this.db.exec(`ALTER TABLE members ADD COLUMN ${col} TEXT`);
+    }
   }
 
   list(): Member[] {
@@ -91,9 +108,9 @@ export class MemberStore {
       const info = this.db
         .prepare(
           `INSERT INTO members (character_name, main_class, main_spec, backup_class, backup_spec,
-             primary_professions, secondary_professions, notes, created_at, updated_at)
+             primary_professions, secondary_professions, sweat_factor, leveling_pref, notes, created_at, updated_at)
            VALUES (@characterName, @mainClass, @mainSpec, @backupClass, @backupSpec,
-             @primaryProfessions, @secondaryProfessions, @notes, @createdAt, @updatedAt)`,
+             @primaryProfessions, @secondaryProfessions, @sweatFactor, @levelingPref, @notes, @createdAt, @updatedAt)`,
         )
         .run({
           ...input,
@@ -116,7 +133,8 @@ export class MemberStore {
         .prepare(
           `UPDATE members SET character_name = @characterName, main_class = @mainClass, main_spec = @mainSpec,
              backup_class = @backupClass, backup_spec = @backupSpec, primary_professions = @primaryProfessions,
-             secondary_professions = @secondaryProfessions, notes = @notes, updated_at = @updatedAt
+             secondary_professions = @secondaryProfessions, sweat_factor = @sweatFactor,
+             leveling_pref = @levelingPref, notes = @notes, updated_at = @updatedAt
            WHERE id = @id`,
         )
         .run({

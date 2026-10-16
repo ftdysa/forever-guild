@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WoW Forever Guild Roster</title>
+  <title>Geriatrics Guild Roster</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
@@ -11,7 +11,7 @@
 </head>
 <body>
   <header class="masthead">
-    <h1>WoW Forever</h1>
+    <h1>Geriatrics Guild</h1>
     <p class="subtitle">Guild Roster &amp; Profession Ledger</p>
   </header>
 
@@ -54,6 +54,8 @@
               <th>Backup</th>
               <th>Primaries</th>
               <th>Secondaries</th>
+              <th>Sweat Factor</th>
+              <th>Leveling Pref</th>
               <th>Notes</th>
               <th class="actions">Actions</th>
             </tr>
@@ -93,6 +95,12 @@
         <fieldset>
           <legend>Secondary professions</legend>
           <div id="f-secondaries" class="checks"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Playstyle</legend>
+          <label><span>Sweat factor</span><select id="f-sweat"></select></label>
+          <label><span>Leveling pref</span><select id="f-leveling"></select></label>
         </fieldset>
 
         <label><span>Notes</span><textarea id="f-notes" maxlength="280" rows="3"></textarea></label>

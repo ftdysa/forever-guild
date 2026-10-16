@@ -169,6 +169,17 @@ p.error { padding-left: 0; }
   vertical-align: middle;
 }
 .badge svg { width: 12px; height: 12px; fill: var(--gold); }
+.pill {
+  display: inline-block; white-space: nowrap;
+  font-family: var(--font-head); font-size: 12px;
+  border: 1px solid var(--gold-dim); padding: 1px 8px;
+}
+/* Sweat factor heats up from ash grey to molten red */
+.sweat-0 { color: var(--muted); }
+.sweat-1 { color: var(--text); }
+.sweat-2 { color: var(--gold-hi); border-color: var(--gold); }
+.sweat-3 { color: #ff9a3c; border-color: #b35f12; }
+.sweat-4 { color: #ff5a3c; border-color: #ff5a3c; box-shadow: 0 0 8px rgba(255, 90, 60, 0.5); }
 .name { font-family: var(--font-head); font-size: 17px; color: var(--gold-hi); }
 
 /* Drawer */
