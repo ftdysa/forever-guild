@@ -4,7 +4,8 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemberStore, DuplicateNameError, openDatabase } from "../src/db.js";
+import { ArmoryCache, MemberStore, DuplicateNameError, openDatabase, wipeGuildData } from "../src/db.js";
+import { SessionStore } from "../src/sessions.js";
 import type { MemberInput } from "../src/validate.js";
 
 const thrall: MemberInput = {
@@ -124,4 +125,28 @@ test("opening a pre-existing database adds the new columns and keeps rows", () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("armory cache round-trips JSON with its fetch time", () => {
+  const cache = new ArmoryCache(db);
+  assert.equal(cache.get("k"), undefined);
+  cache.set("k", { a: [1, 2] }, 42);
+  assert.deepEqual(cache.get("k"), { value: { a: [1, 2] }, fetchedAt: 42 });
+  cache.set("k", null, 43);
+  assert.deepEqual(cache.get("k"), { value: null, fetchedAt: 43 });
+});
+
+test("wipeGuildData removes members and armory cache but keeps sessions", () => {
+  const sessions = new SessionStore(db, "a-long-guild-passphrase", "s".repeat(32));
+  const token = sessions.create();
+  const cache = new ArmoryCache(db);
+  store.create(thrall);
+  store.create(jaina);
+  cache.set("k", {});
+  assert.deepEqual(wipeGuildData(db), { members: 2, cached: 1 });
+  assert.equal(store.list().length, 0);
+  assert.equal(cache.get("k"), undefined);
+  assert.ok(sessions.isValid(token));
+  // ids restart after a wipe
+  assert.equal(store.create(thrall).id, 1);
 });

@@ -33,6 +33,7 @@
     <!-- Roster -->
     <section id="roster" class="hidden">
       <div class="toolbar">
+        <button id="import-btn" class="btn hidden">Import from Guild</button>
         <button id="add-btn" class="btn">Add Member</button>
         <button id="logout-btn" class="btn btn-ghost">Leave Hall</button>
       </div>
@@ -70,6 +71,7 @@
   <aside id="drawer" class="drawer hidden" aria-hidden="true">
     <div class="panel drawer-panel">
       <h2 id="drawer-title">Add Member</h2>
+      <p id="drawer-note" class="note hidden"></p>
       <form id="member-form">
         <input type="hidden" id="f-id" />
         <label><span>Character name</span><input id="f-name" required maxlength="24" /></label>
@@ -123,6 +125,46 @@
       <div class="drawer-actions">
         <button type="button" id="confirm-cancel" class="btn btn-ghost">Keep</button>
         <button type="button" id="confirm-ok" class="btn btn-danger">Remove</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Guild import dialog -->
+  <dialog id="import" class="modal">
+    <div class="panel modal-panel">
+      <h2 id="import-title">Import from Guild</h2>
+      <div class="filters">
+        <label><span>Search</span><input id="import-search" type="search" autocomplete="off" /></label>
+        <label><span>Min level</span><input id="import-min" type="number" min="1" value="60" /></label>
+      </div>
+      <p id="import-status" class="muted" role="status"></p>
+      <div class="modal-scroll">
+        <table class="roster import-table">
+          <thead><tr><th>Character</th><th>Level</th><th>Class</th><th class="actions"></th></tr></thead>
+          <tbody id="import-body"></tbody>
+        </table>
+      </div>
+      <div class="drawer-actions">
+        <button type="button" id="import-close" class="btn btn-ghost">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Armory dialog -->
+  <dialog id="armory" class="modal">
+    <div class="panel modal-panel">
+      <div class="armory-head">
+        <img id="armory-avatar" class="avatar hidden" alt="" width="84" height="84" />
+        <div>
+          <h2 id="armory-name"></h2>
+          <p id="armory-sub" class="muted"></p>
+          <p id="armory-spec" class="muted"></p>
+        </div>
+      </div>
+      <p id="armory-status" class="muted" role="status"></p>
+      <ul id="armory-gear" class="gear"></ul>
+      <div class="drawer-actions">
+        <button type="button" id="armory-close" class="btn btn-ghost">Close</button>
       </div>
     </div>
   </dialog>
