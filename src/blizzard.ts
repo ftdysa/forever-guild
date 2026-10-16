@@ -29,13 +29,31 @@ export class BlizzardClient {
   ) {}
 
   get profileNamespace(): string {
+    return this.namespaceFor("profile");
+  }
+
+  get staticNamespace(): string {
+    return this.namespaceFor("static");
+  }
+
+  private namespaceFor(kind: "profile" | "static"): string {
     const { namespace, region } = this.creds;
-    return namespace === "retail" ? `profile-${region}` : `profile-${namespace}-${region}`;
+    return namespace === "retail" ? `${kind}-${region}` : `${kind}-${namespace}-${region}`;
   }
 
   // GET a Profile API path. Resolves null on 404 (unknown/hidden character or guild).
-  async profile<T>(path: string): Promise<T | null> {
-    const url = `https://${this.creds.region}.api.blizzard.com${path}?namespace=${this.profileNamespace}&locale=en_US`;
+  profile<T>(path: string): Promise<T | null> {
+    return this.get<T>(path, this.profileNamespace);
+  }
+
+  // GET a Game Data API path backed by static data (items, media, search). Resolves null on 404.
+  gameData<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+    return this.get<T>(path, this.staticNamespace, params);
+  }
+
+  private async get<T>(path: string, namespace: string, params: Record<string, string> = {}): Promise<T | null> {
+    const query = new URLSearchParams({ ...params, namespace, locale: "en_US" });
+    const url = `https://${this.creds.region}.api.blizzard.com${path}?${query}`;
     let res = await this.send(url, await this.accessToken());
     if (res.status === 401) {
       // Token revoked or expired early: fetch a fresh one and retry once.
