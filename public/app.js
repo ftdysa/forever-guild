@@ -253,12 +253,110 @@ function armoryError(r, what) {
   return "The armory is unreachable right now. Try again shortly.";
 }
 
+// Paper-doll slot layout, matching the in-game character sheet.
+const DOLL_LEFT = ["HEAD", "NECK", "SHOULDER", "BACK", "CHEST", "SHIRT", "TABARD", "WRIST"];
+const DOLL_RIGHT = ["HANDS", "WAIST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "TRINKET_1", "TRINKET_2"];
+const DOLL_WEAPONS = ["MAIN_HAND", "OFF_HAND", "RANGED"];
+const SLOT_LABEL = {
+  HEAD: "Head", NECK: "Neck", SHOULDER: "Shoulder", BACK: "Back", CHEST: "Chest", SHIRT: "Shirt",
+  TABARD: "Tabard", WRIST: "Wrist", HANDS: "Hands", WAIST: "Waist", LEGS: "Legs", FEET: "Feet",
+  FINGER_1: "Finger", FINGER_2: "Finger", TRINKET_1: "Trinket", TRINKET_2: "Trinket",
+  MAIN_HAND: "Main Hand", OFF_HAND: "Off Hand", RANGED: "Ranged",
+};
+const POWER_STAT = { Mana: "mana", Rage: "rage", Energy: "energy" };
+
+let armoryGear = []; // gear of the character in the open armory dialog, indexed by data-gear
+
+function slotHtml(slot) {
+  const i = armoryGear.findIndex((g) => g.slot === slot);
+  if (i < 0) {
+    return `<li class="slot empty" title="${esc(SLOT_LABEL[slot])}"><span class="slot-icon"></span><span class="slot-text"></span></li>`;
+  }
+  const g = armoryGear[i];
+  const href = esc(armory.wowheadItemUrl + g.itemId);
+  const icon = g.icon ? `<img src="${esc(g.icon)}" alt="" width="44" height="44" loading="lazy" />` : "";
+  const enchant = g.tooltip.enchantments[0] ? `<span class="slot-enchant">${esc(g.tooltip.enchantments[0])}</span>` : "";
+  return `<li class="slot q-${esc(g.quality)}" data-gear="${i}">
+    <a class="slot-icon" href="${href}" target="_blank" rel="noopener noreferrer" aria-label="${esc(g.name)}" aria-describedby="item-tip">${icon}</a>
+    <span class="slot-text"><a class="slot-name" href="${href}" target="_blank" rel="noopener noreferrer" tabindex="-1">${esc(g.name)}</a>${enchant}</span>
+  </li>`;
+}
+
+// Tooltip body built from Blizzard's own display strings, laid out like the in-game tooltip.
+function tooltipHtml(g) {
+  const t = g.tooltip;
+  const line = (text, cls = "") => (text ? `<div class="${cls}">${esc(text)}</div>` : "");
+  const pair = (a, b) => (a || b ? `<div class="tip-pair"><span>${esc(a ?? "")}</span><span>${esc(b ?? "")}</span></div>` : "");
+  let html = `<div class="tip-name q-${esc(g.quality)}">${esc(g.name)}</div>`;
+  html += line(t.binding) + line(t.unique);
+  html += pair(t.slotLabel, t.typeLabel);
+  html += pair(t.damage, t.speed) + line(t.dps);
+  html += line(t.armor);
+  html += t.stats.map((x) => line(x)).join("");
+  html += t.enchantments.map((x) => line(x, "tip-green")).join("");
+  html += line(t.durability) + line(t.requiredLevel);
+  html += t.spells.map((x) => line(x, "tip-green")).join("");
+  if (t.set) {
+    html += `<div class="tip-gap"></div>${line(t.set.name, "tip-set")}`;
+    html += t.set.items.map((x) => line(x.name, x.equipped ? "tip-set-item on" : "tip-set-item")).join("");
+    html += `<div class="tip-gap"></div>`;
+    html += t.set.effects.map((x) => line(x.text, x.active ? "tip-green" : "tip-off")).join("");
+  }
+  if (t.description) html += line(`"${t.description}"`, "tip-desc");
+  return html;
+}
+
+function showTip(slotEl) {
+  const g = armoryGear[Number(slotEl.dataset.gear)];
+  const tip = $("#item-tip");
+  tip.innerHTML = tooltipHtml(g);
+  tip.dataset.gear = slotEl.dataset.gear;
+  tip.classList.remove("hidden");
+  // Beside the icon, flipping sides and clamping so it never leaves the viewport.
+  const r = slotEl.querySelector(".slot-icon").getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const h = tip.offsetHeight;
+  let x = r.right + 12;
+  if (x + w > innerWidth - 8) x = r.left - w - 12;
+  x = Math.max(8, Math.min(x, innerWidth - w - 8));
+  const y = Math.max(8, Math.min(r.top, innerHeight - h - 8));
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+
+function hideTip() {
+  $("#item-tip").classList.add("hidden");
+  delete $("#item-tip").dataset.gear;
+}
+
+function renderStats(stats) {
+  const el = $("#armory-stats");
+  el.classList.toggle("hidden", !stats);
+  if (!stats) return;
+  const tiles = [
+    ["health", "Health", stats.health],
+    [POWER_STAT[stats.powerName] ?? "mana", stats.powerName, stats.power],
+    ["strength", "Strength", stats.strength],
+    ["intellect", "Intellect", stats.intellect],
+    ["agility", "Agility", stats.agility],
+    ["stamina", "Stamina", stats.stamina],
+    ["crit", "Critical Strike", `${stats.crit}%`],
+    ["spirit", "Spirit", stats.spirit],
+  ];
+  el.innerHTML = tiles
+    .map(([key, label, value]) => `<div class="stat-tile stat-${key}"><span class="stat-ring"></span><span><b>${esc(typeof value === "number" ? value.toLocaleString() : value)}</b>${esc(label)}</span></div>`)
+    .join("");
+}
+
 async function openArmory(name) {
+  hideTip();
+  armoryGear = [];
   $("#armory-name").textContent = name;
-  $("#armory-name").className = "";
-  for (const id of ["#armory-sub", "#armory-spec"]) $(id).textContent = "";
-  $("#armory-gear").innerHTML = "";
-  $("#armory-avatar").classList.add("hidden");
+  $("#armory-name").style.color = "";
+  for (const id of ["#armory-ilvl", "#armory-sub", "#armory-spec"]) $(id).textContent = "";
+  $("#armory-crest").className = "crest hidden";
+  $("#armory-doll").classList.add("hidden");
+  $("#armory-stats").classList.add("hidden");
   $("#armory-status").textContent = "Consulting the armory…";
   $("#armory").showModal();
 
@@ -275,35 +373,33 @@ async function openArmory(name) {
   const cls = classById(c.classId);
   $("#armory-status").textContent = "";
   $("#armory-name").textContent = c.name;
-  if (cls) {
-    $("#armory-name").className = "cls";
-    $("#armory-name").style.color = cls.color;
-  }
+  if (cls) $("#armory-name").style.color = cls.color;
+  if (c.faction) $("#armory-crest").className = `crest crest-${c.faction}`;
+  $("#armory-ilvl").textContent = c.itemLevel ? `${c.itemLevel} ILVL` : "";
   $("#armory-sub").textContent = [
-    `Level ${c.level} ${c.race ?? ""} ${cls?.name ?? ""}`.replace(/\s+/g, " ").trim(),
+    `${c.level} ${c.race ?? ""} ${cls?.name ?? ""}`.replace(/\s+/g, " ").trim(),
     c.guild && `<${c.guild}>`,
-    c.itemLevel && `iLvl ${c.itemLevel}`,
-    c.lastLogin && `Last seen ${new Date(c.lastLogin).toLocaleDateString()}`,
+    titleCase(armory.realm),
+    c.lastLogin && `· last seen ${new Date(c.lastLogin).toLocaleDateString()}`,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" ");
   if (c.spec) {
     const spec = specOf(c.classId, c.spec.specId);
     const pts = Object.values(c.spec.points).sort((a, b) => b - a).join(" / ");
     $("#armory-spec").textContent = `Talents suggest ${spec?.name ?? c.spec.specId} (${pts})`;
   }
-  if (c.avatarUrl) {
-    $("#armory-avatar").src = c.avatarUrl;
-    $("#armory-avatar").classList.remove("hidden");
-  }
-  $("#armory-gear").innerHTML = c.gear.length
-    ? c.gear
-        .map(
-          (g) => `<li><span class="slot">${esc(g.slot)}</span>
-            <a class="q-${esc(g.quality)}" href="${esc(armory.wowheadItemUrl + g.itemId)}" target="_blank" rel="noopener noreferrer">${esc(g.name)}</a></li>`,
-        )
-        .join("")
-    : '<li class="muted">No gear equipped.</li>';
+
+  armoryGear = c.gear;
+  $("#doll-left").innerHTML = DOLL_LEFT.map(slotHtml).join("");
+  $("#doll-right").innerHTML = DOLL_RIGHT.map(slotHtml).join("");
+  $("#doll-weapons").innerHTML = DOLL_WEAPONS.map(slotHtml).join("");
+  const render = $("#armory-render");
+  render.classList.toggle("hidden", !(c.renderUrl || c.avatarUrl));
+  render.classList.toggle("is-avatar", !c.renderUrl);
+  if (c.renderUrl || c.avatarUrl) render.src = c.renderUrl ?? c.avatarUrl;
+  $("#armory-doll").classList.remove("hidden");
+  renderStats(c.stats);
 }
 
 async function openImport() {
@@ -460,6 +556,37 @@ $("#import-body").addEventListener("click", (e) => {
   if (btn) importMember(btn);
 });
 $("#armory-close").addEventListener("click", () => $("#armory").close());
+$("#armory").addEventListener("close", hideTip);
+const doll = $("#armory-doll");
+// Taps also fire emulated mouseover/focus before click; track the real pointer so touch
+// goes through the tap-to-preview path below instead.
+let lastPointer = "mouse";
+doll.addEventListener("pointerdown", (e) => (lastPointer = e.pointerType));
+document.addEventListener("keydown", () => (lastPointer = "keyboard"));
+doll.addEventListener("mouseover", (e) => {
+  if (lastPointer === "touch") return;
+  const slot = e.target.closest(".slot[data-gear]");
+  if (slot && $("#item-tip").dataset.gear !== slot.dataset.gear) showTip(slot);
+});
+doll.addEventListener("mouseleave", hideTip);
+doll.addEventListener("mouseout", (e) => {
+  if (!e.relatedTarget?.closest?.(".slot[data-gear]")) hideTip();
+});
+doll.addEventListener("focusin", (e) => {
+  if (lastPointer === "touch") return;
+  const slot = e.target.closest(".slot[data-gear]");
+  if (slot) showTip(slot);
+});
+doll.addEventListener("focusout", hideTip);
+// Touch has no hover: the first tap on a slot shows its tooltip, a second tap opens Wowhead.
+doll.addEventListener("click", (e) => {
+  const slot = e.target.closest(".slot[data-gear]");
+  if (!slot || lastPointer !== "touch") return;
+  if ($("#item-tip").dataset.gear !== slot.dataset.gear) {
+    e.preventDefault();
+    showTip(slot);
+  }
+});
 
 $("#confirm-cancel").addEventListener("click", () => $("#confirm").close());
 $("#confirm-ok").addEventListener("click", async () => {
