@@ -234,26 +234,145 @@ button.link {
 }
 button.link:hover, button.link:focus-visible { outline: none; text-shadow: 0 0 10px rgba(240, 215, 140, 0.6); }
 
-/* Armory */
-.armory-head { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
-.armory-head h2 { border: 0; margin: 0; padding: 0; }
-.armory-head p { margin: 2px 0; }
-.avatar { border: 2px solid var(--gold); box-shadow: 0 0 0 1px #000, 0 0 12px rgba(0, 0, 0, 0.8); }
-.gear { list-style: none; margin: 0; padding: 0; overflow-y: auto; columns: 2 260px; column-gap: 24px; }
-.gear li { break-inside: avoid; padding: 4px 0; border-bottom: 1px solid rgba(107, 90, 51, 0.35); }
-.gear .slot { display: block; font-family: var(--font-head); font-size: 11px; font-variant: small-caps; color: var(--muted); }
-.gear a { text-decoration: none; font-weight: 600; }
-.gear a:hover, .gear a:focus-visible { text-decoration: underline; }
+/* Armory: paper doll modelled on Blizzard's character page */
+/* calc() rather than vw alone: <dialog> caps its own width a little under the viewport. */
+.armory-panel { width: min(1000px, calc(100vw - 48px)); overflow-x: hidden; overflow-y: auto; background: radial-gradient(ellipse at 50% 35%, #26301f 0%, #12150e 55%, #0a0b08 100%); }
+.armory-head {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 4px 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gold-dim);
+  margin-bottom: 8px;
+}
+.armory-head h2 { border: 0; margin: 0; padding: 0 16px 0 0; font-size: 30px; border-right: 1px solid var(--gold-dim); }
+.armory-meta p { margin: 0; font-size: 15px; }
+.ilvl { font-family: var(--font-head); color: #f8b700; font-size: 18px !important; }
+.crest { width: 40px; height: 48px; clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.4); }
+.crest-horde { background: linear-gradient(180deg, #b31b1b, #5c0b0b); }
+.crest-alliance { background: linear-gradient(180deg, #1f5fbf, #0b2a5c); }
+
+.doll {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 300px) 1fr;
+  grid-template-areas: "left fig right" "weapons weapons weapons";
+  gap: 8px 12px;
+}
+.doll-col, .doll-weapons { list-style: none; margin: 0; padding: 0; }
+.doll-left { grid-area: left; }
+.doll-right { grid-area: right; }
+.doll-figure { grid-area: fig; position: relative; min-height: 0; }
+/* The render is a 4:3 canvas with the character small in the middle: scale it past the
+   column so the figure fills the space between the gear columns, like Blizzard's page. */
+.doll-figure img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: 165%;
+  width: auto;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.7));
+}
+.doll-figure img.is-avatar { position: static; transform: none; display: block; margin: 40px auto; width: 120px; height: 120px; border: 2px solid var(--gold); }
+.doll-col, .doll-weapons { position: relative; z-index: 1; }
+.doll-weapons { grid-area: weapons; display: flex; justify-content: center; gap: 28px; }
+
+.slot { display: flex; align-items: flex-start; gap: 12px; height: 58px; }
+.doll-right .slot, .doll-weapons .slot:first-child { flex-direction: row-reverse; text-align: right; }
+.doll-weapons .slot { min-width: 220px; }
+.doll-weapons .slot:not(:first-child) .slot-text { min-width: 160px; }
+.slot-icon {
+  flex: 0 0 auto;
+  width: 46px; height: 46px;
+  border: 1px solid var(--q, #3a3a3a);
+  background: #0b0b0b;
+  box-shadow: 0 0 0 1px #000;
+  display: block;
+  transition: box-shadow 120ms, filter 120ms;
+}
+.slot-icon img { display: block; width: 44px; height: 44px; }
+.slot.empty .slot-icon { background: linear-gradient(135deg, #1c1c1c, #0d0d0d); opacity: 0.55; }
+.slot-text { display: flex; flex-direction: column; min-width: 0; padding-top: 2px; }
+.slot-name { color: inherit; text-decoration: none; font-family: var(--font-body); font-size: 15px; line-height: 1.2; }
+.slot-enchant { color: #1eff00; font-size: 13px; line-height: 1.3; }
+.slot:hover .slot-icon, .slot-icon:focus-visible {
+  outline: none;
+  filter: brightness(1.2);
+  box-shadow: 0 0 0 1px #000, 0 0 10px 2px var(--q, #fff);
+}
+.slot:hover .slot-name { color: #fff; }
+
+.doll-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  border-top: 1px solid var(--gold-dim);
+  margin-top: 12px;
+  padding-top: 14px;
+}
+.stat-tile { display: flex; align-items: center; gap: 10px; font-family: var(--font-head); font-size: 12px; text-transform: uppercase; }
+.stat-tile b { display: block; font-size: 16px; color: var(--stat); text-transform: none; }
+.stat-ring { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--stat); box-shadow: inset 0 0 0 5px rgba(0, 0, 0, 0.6), inset 0 0 0 30px var(--stat); opacity: 0.85; flex: 0 0 auto; }
+.stat-health { --stat: #2ec44f; }
+.stat-mana { --stat: #3d8bff; }
+.stat-rage { --stat: #e03131; }
+.stat-energy { --stat: #f5d000; }
+.stat-strength { --stat: #e34d4d; }
+.stat-intellect { --stat: #d36be0; }
+.stat-agility { --stat: #f2c14b; }
+.stat-stamina { --stat: #ff8a3d; }
+.stat-crit { --stat: #e34d4d; }
+.stat-spirit { --stat: #e8e8e8; }
+
+/* In-game style item tooltip */
+.item-tip {
+  position: fixed;
+  z-index: 20;
+  width: 320px;
+  padding: 8px 10px;
+  background: rgba(8, 10, 24, 0.96);
+  border: 1px solid #8a8fa8;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px #000, 0 6px 18px rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.tip-name { font-size: 15px; margin-bottom: 2px; }
+.tip-pair { display: flex; justify-content: space-between; gap: 12px; }
+.tip-green { color: #1eff00; }
+.tip-off { color: #808080; }
+.tip-set { color: #ffd100; }
+.tip-set-item { color: #808080; padding-left: 10px; }
+.tip-set-item.on { color: #ffff98; }
+.tip-desc { color: #ffd100; }
+.tip-gap { height: 8px; }
+
+@media (max-width: 760px) {
+  .armory-head { grid-template-columns: auto 1fr auto; }
+  .armory-head h2 { border-right: 0; font-size: 24px; }
+  .armory-meta { grid-column: 1 / -1; }
+  .doll { grid-template-columns: 1fr; grid-template-areas: "fig" "left" "right" "weapons"; }
+  .doll-figure { height: 280px; overflow: hidden; }
+  .doll-right .slot, .doll-weapons .slot:first-child { flex-direction: row; text-align: left; }
+  .doll-weapons { flex-direction: column; gap: 0; }
+  .doll-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* WoW item quality colours */
-.q-poor { color: #9d9d9d; }
-.q-common { color: #ffffff; }
-.q-uncommon { color: #1eff00; }
-.q-rare { color: #0070dd; }
-.q-epic { color: #a335ee; }
-.q-legendary { color: #ff8000; }
-.q-artifact { color: #e6cc80; }
-.q-heirloom { color: #00ccff; }
+.q-poor { color: #9d9d9d; --q: #9d9d9d; }
+.q-common { color: #ffffff; --q: #ffffff; }
+.q-uncommon { color: #1eff00; --q: #1eff00; }
+.q-rare { color: #0070dd; --q: #0070dd; }
+.q-epic { color: #a335ee; --q: #a335ee; }
+.q-legendary { color: #ff8000; --q: #ff8000; }
+.q-artifact { color: #e6cc80; --q: #e6cc80; }
+.q-heirloom { color: #00ccff; --q: #00ccff; }
 
 /* Mobile: table to cards */
 @media (max-width: 720px) {

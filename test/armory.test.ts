@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { ArmoryService, inferSpec, mapProfessions } from "../src/armory.js";
+import { ArmoryService, inferSpec, mapProfessions, mapStats, type RawItem } from "../src/armory.js";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache } from "../src/db.js";
 import { BASE, fakeBlizzard, guildFixture } from "./fake-blizzard.js";
@@ -9,12 +9,13 @@ import { BASE, fakeBlizzard, guildFixture } from "./fake-blizzard.js";
 const cfg = { region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" };
 const creds = { clientId: "id", clientSecret: "shh", region: "us", namespace: "classic1x" };
 
-function setup(routes: Record<string, unknown> = guildFixture()) {
+function setup(routes: Record<string, unknown> = guildFixture(), config = cfg) {
   let t = 1_000_000;
   const fake = fakeBlizzard(routes);
   const db = new Database(":memory:");
   const cache = new ArmoryCache(db);
-  const armory = new ArmoryService(new BlizzardClient(creds, fake.fetchFn), cache, cfg, () => t);
+  const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn);
+  const armory = new ArmoryService(client, cache, config, () => t);
   return { fake, armory, cache, advance: (ms: number) => (t += ms) };
 }
 
@@ -68,8 +69,112 @@ test("character maps profile, gear, spec, avatar; professions null when unsuppor
   assert.equal(c.spec?.specId, "frost");
   assert.equal(c.professions, null);
   assert.match(c.avatarUrl ?? "", /^https:\/\/render\.worldofwarcraft\.com\//);
-  assert.deepEqual(c.gear[0], { slot: "Head", name: "Frostfire Circlet", quality: "epic", itemId: 22498 });
+  assert.match(c.renderUrl ?? "", /main-raw\.png$/);
+  assert.equal(c.faction, "alliance");
+  assert.deepEqual(c.stats, {
+    health: 4200, powerName: "Mana", power: 6100,
+    strength: 35, agility: 40, stamina: 210, intellect: 290, spirit: 150, crit: 9.26,
+  });
   assert.equal(await armory.character("Nobody"), null);
+});
+
+test("gear carries slot, icon, and Blizzard's tooltip lines", async () => {
+  const { armory } = setup();
+  const [helm, staff, shirt] = (await armory.character("jaina"))!.gear;
+  assert.equal(helm.slot, "HEAD");
+  assert.equal(helm.slotName, "Head");
+  assert.equal(helm.icon, "https://render.worldofwarcraft.com/classic1x-us/icons/56/inv_crown_01.jpg");
+  assert.deepEqual(helm.tooltip, {
+    binding: "Binds when picked up",
+    unique: null,
+    slotLabel: "Head",
+    typeLabel: "Cloth",
+    damage: null,
+    speed: null,
+    dps: null,
+    armor: "98 Armor",
+    stats: ["+23 Stamina", "+27 Intellect"],
+    enchantments: ["Enchanted: +8 Intellect"],
+    durability: "Durability 60 / 60",
+    requiredLevel: "Requires Level 60",
+    spells: ["Equip: Increases damage and healing done by magical spells and effects by up to 35."],
+    set: {
+      name: "Frostfire Regalia (2/9)",
+      items: [
+        { name: "Frostfire Circlet", equipped: true },
+        { name: "Frostfire Robe", equipped: true },
+        { name: "Frostfire Sandals", equipped: false },
+      ],
+      effects: [
+        { text: "(2) Set: Your Arcane Missiles refund 10% of their mana cost.", active: true },
+        { text: "(4) Set: Chance on spell cast to gain 200 mana.", active: false },
+      ],
+    },
+    description: null,
+  });
+  assert.equal(staff.tooltip.damage, "124 - 207 Damage");
+  assert.equal(staff.tooltip.speed, "Speed 2.90");
+  assert.equal(staff.tooltip.unique, "Unique");
+  assert.equal(staff.tooltip.description, "Guardian of the Tirisfal.");
+  // icon from a non-Blizzard host is dropped; missing icon is null
+  assert.equal(staff.icon, null);
+  assert.equal(shirt.icon, null);
+  assert.equal(shirt.tooltip.typeLabel, null);
+});
+
+const searches = (calls: string[]) => calls.filter((c) => c === "/data/wow/search/media").length;
+
+test("all of a character's icons come from one media search", async () => {
+  const { armory, fake } = setup();
+  await armory.character("jaina");
+  assert.equal(searches(fake.calls), 1);
+  // per-character profile calls: summary, equipment, specializations, media, statistics
+  assert.equal(fake.calls.filter((c) => c.startsWith(BASE)).length, 5);
+});
+
+test("cached icons (including items without one) are not searched again", async () => {
+  const { armory, fake, advance } = setup();
+  await armory.character("jaina");
+  advance(4 * 60 * 60 * 1000); // character stale, icons still fresh
+  await armory.character("jaina");
+  assert.equal(searches(fake.calls), 1);
+});
+
+test("icon searches are batched 100 ids at a time", async () => {
+  const routes = guildFixture();
+  const equipment = routes[`${BASE}/jaina/equipment`] as { equipped_items: RawItem[] };
+  const shirt = equipment.equipped_items[2];
+  equipment.equipped_items = Array.from({ length: 150 }, (_, n) => ({ ...shirt, item: { id: 1000 + n } }));
+  const fake = fakeBlizzard(routes);
+  const batchSizes: number[] = [];
+  const counting: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/data/wow/search/media") batchSizes.push((url.searchParams.get("id") ?? "").split("||").length);
+    return fake.fetchFn(input, init);
+  };
+  const armory = new ArmoryService(new BlizzardClient(creds, counting), new ArmoryCache(new Database(":memory:")), cfg);
+  await armory.character("jaina");
+  assert.deepEqual(batchSizes, [100, 50]);
+});
+
+test("icon search failures degrade to null and are retried next time", async () => {
+  const routes: Record<string, unknown> = guildFixture();
+  routes["/data/wow/search/media"] = { status: 503 };
+  const { armory, fake, advance } = setup(routes);
+  const c = await armory.character("jaina");
+  assert.equal(c?.gear[0].icon, null);
+  assert.equal(c?.gear[0].name, "Frostfire Circlet");
+  advance(4 * 60 * 60 * 1000);
+  await armory.character("jaina");
+  assert.equal(searches(fake.calls), 2);
+});
+
+test("mapStats picks the best crit and tolerates missing data", () => {
+  assert.equal(mapStats(null), null);
+  assert.equal(mapStats({}), null);
+  assert.deepEqual(mapStats({ health: 100, melee_crit: { value: 3 } }), {
+    health: 100, powerName: "Power", power: 0, strength: 0, agility: 0, stamina: 0, intellect: 0, spirit: 0, crit: 3,
+  });
 });
 
 test("avatar from any other host is dropped", async () => {
@@ -79,11 +184,17 @@ test("avatar from any other host is dropped", async () => {
   assert.equal((await armory.character("jaina"))?.avatarUrl, null);
 });
 
-test("character professions are mapped when the endpoint exists", async () => {
+test("character professions are mapped where the endpoint exists (not Classic Era)", async () => {
   const routes = guildFixture();
   routes[`${BASE}/jaina/professions`] = { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] };
-  const { armory } = setup(routes);
+  const { armory } = setup(routes, { ...cfg, namespace: "retail" });
   assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [] });
+});
+
+test("Classic Era skips the professions call entirely", async () => {
+  const { armory, fake } = setup();
+  await armory.character("jaina");
+  assert.ok(!fake.calls.some((c) => c.endsWith("/professions")));
 });
 
 test("results are cached until the TTL, keyed case-insensitively", async () => {
