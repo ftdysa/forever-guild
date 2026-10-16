@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemberStore, DuplicateNameError } from "../src/db.js";
+import { MemberStore, DuplicateNameError, openDatabase } from "../src/db.js";
 import type { MemberInput } from "../src/validate.js";
 
 const thrall: MemberInput = {
@@ -33,11 +33,13 @@ const jaina: MemberInput = {
   notes: "portals",
 };
 
+let db: Database.Database;
 let store: MemberStore;
 beforeEach(() => {
-  store = new MemberStore(":memory:");
+  db = openDatabase(":memory:");
+  store = new MemberStore(db);
 });
-afterEach(() => store.close());
+afterEach(() => db.close());
 
 test("create returns a member with id and timestamps, list is sorted by name", () => {
   const t = store.create(thrall);
@@ -83,10 +85,10 @@ test("update to another member's name is rejected", () => {
   assert.ok(store.update(t.id, { ...thrall, characterName: "THRALL" }));
 });
 
-test("delete returns true then false", () => {
+test("delete returns the name, then undefined", () => {
   const t = store.create(thrall);
-  assert.equal(store.delete(t.id), true);
-  assert.equal(store.delete(t.id), false);
+  assert.equal(store.delete(t.id), "Thrall");
+  assert.equal(store.delete(t.id), undefined);
   assert.equal(store.list().length, 0);
 });
 
@@ -106,16 +108,19 @@ test("opening a pre-existing database adds the new columns and keeps rows", () =
       VALUES ('Thrall', 'shaman', 'restoration', '["alchemy","herbalism"]', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`);
     old.close();
 
-    const s = new MemberStore(path);
+    const sdb = openDatabase(path);
+    const s = new MemberStore(sdb);
     const [m] = s.list();
     assert.equal(m.characterName, "Thrall");
     assert.equal(m.sweatFactor, null);
     assert.equal(m.levelingPref, null);
     const u = s.update(m.id, { ...thrall, sweatFactor: "meh", levelingPref: "orgy" });
     assert.equal(u?.sweatFactor, "meh");
-    s.close();
+    sdb.close();
     // reopening an already-migrated database is a no-op
-    new MemberStore(path).close();
+    const again = openDatabase(path);
+    new MemberStore(again);
+    again.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
