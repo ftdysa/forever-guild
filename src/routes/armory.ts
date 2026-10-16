@@ -30,7 +30,7 @@ export const armoryRoutes: FastifyPluginCallback = (app, _opts, done) => {
     }
   });
 
-  // Cache misses fan out to five Blizzard calls, so cap how fast one client can trigger them.
+  // Cache misses fan out to six Blizzard calls plus uncached item icons, so cap how fast one client can trigger them.
   app.get<{ Params: { name: string } }>(
     "/armory/character/:name",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },

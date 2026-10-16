@@ -150,22 +150,28 @@
     </div>
   </dialog>
 
-  <!-- Armory dialog -->
+  <!-- Armory dialog: paper doll modelled on Blizzard's character armory -->
   <dialog id="armory" class="modal">
-    <div class="panel modal-panel">
-      <div class="armory-head">
-        <img id="armory-avatar" class="avatar hidden" alt="" width="84" height="84" />
-        <div>
-          <h2 id="armory-name"></h2>
-          <p id="armory-sub" class="muted"></p>
+    <div class="panel modal-panel armory-panel">
+      <header class="armory-head">
+        <span id="armory-crest" class="crest hidden" aria-hidden="true"></span>
+        <h2 id="armory-name"></h2>
+        <div class="armory-meta">
+          <p id="armory-ilvl" class="ilvl"></p>
+          <p id="armory-sub"></p>
           <p id="armory-spec" class="muted"></p>
         </div>
-      </div>
+        <button type="button" id="armory-close" class="btn btn-ghost btn-small">Close</button>
+      </header>
       <p id="armory-status" class="muted" role="status"></p>
-      <ul id="armory-gear" class="gear"></ul>
-      <div class="drawer-actions">
-        <button type="button" id="armory-close" class="btn btn-ghost">Close</button>
+      <div id="armory-doll" class="doll hidden">
+        <ul id="doll-left" class="doll-col doll-left"></ul>
+        <div class="doll-figure"><img id="armory-render" class="hidden" alt="" /></div>
+        <ul id="doll-right" class="doll-col doll-right"></ul>
+        <ul id="doll-weapons" class="doll-weapons"></ul>
       </div>
+      <div id="armory-stats" class="doll-stats hidden"></div>
+      <div id="item-tip" class="item-tip hidden" role="tooltip"></div>
     </div>
   </dialog>
 
