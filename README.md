@@ -1,7 +1,8 @@
-# WoW Forever Guild Roster
+# Geriatrics Guild Roster
 
 Guild members claim a main class/spec, an optional backup class/spec, two
-primary professions, and secondary professions. Everyone behind the guild
+primary professions, secondary professions, and optionally a sweat factor
+and leveling preference. Everyone behind the guild
 passphrase sees the full roster and coverage counts.
 
 ## Run with Docker
@@ -40,7 +41,7 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 
 | Method | Path               | Notes                               |
 |--------|--------------------|-------------------------------------|
-| GET    | /api/game-data     | classes, specs, roles, professions  |
+| GET    | /api/game-data     | classes, specs, roles, professions, sweat factors, leveling prefs |
 | POST   | /api/login         | `{ passphrase }` → 204 + cookie     |
 | POST   | /api/logout        | clears cookie                       |
 | GET    | /api/members       | roster sorted by name               |
