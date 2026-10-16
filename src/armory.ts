@@ -17,9 +17,11 @@ const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
 };
 
 const ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
-const CHARACTER_TTL_MS = 3 * 60 * 60 * 1000;
-// Item icons never change, so keep them for a month.
-const ICON_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Cached characters are served as-is for this long, then revalidated with one conditional
+// request (see character()). There is no hard expiry: unchanged characters stay cached.
+const CHARACTER_FRESH_MS = 15 * 60 * 1000;
+// Item icons effectively never change.
+const ICON_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // Blizzard's search API caps a page at 100 results; one OR-query fetches that many icons.
 const ICON_BATCH = 100;
 const AVATAR_HOST = "render.worldofwarcraft.com";
@@ -257,6 +259,11 @@ function mediaUrl(raw: RawMedia | null, key: string): string | null {
   }
 }
 
+interface CachedCharacter {
+  info: CharacterInfo | null;
+  lastModified: string | null;
+}
+
 export class ArmoryService {
   private keyPrefix: string;
 
@@ -290,49 +297,84 @@ export class ArmoryService {
   }
 
   // `name` must already be validated as letters only.
-  character(name: string): Promise<CharacterInfo | null> {
+  //
+  // A character's armory data only changes when they play: every character endpoint shares the
+  // last-login time as Last-Modified. So after CHARACTER_FRESH_MS, one conditional summary request
+  // decides: 304 keeps the cached entry (1 call instead of 5), 200 means they played and the
+  // rest is refetched. If Blizzard is down, the cached entry is served.
+  async character(name: string): Promise<CharacterInfo | null> {
     const lower = name.toLowerCase();
-    // v2: gear carries icons and tooltips; older cached entries lack them.
-    return this.cached(`${this.keyPrefix}:character:v2:${lower}`, CHARACTER_TTL_MS, async () => {
-      const base = `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
-      const summary = await this.client.profile<RawSummary>(base);
-      if (!summary) return null;
-      const [equipment, specs, media, professions, statistics] = await Promise.all([
-        this.client.profile<RawEquipment>(`${base}/equipment`),
-        this.client.profile<RawSpecializations>(`${base}/specializations`),
-        this.client.profile<RawMedia>(`${base}/character-media`),
-        // Classic Era has no professions endpoint (always 404), so don't spend a call on it.
-        this.cfg.namespace === "classic1x" ? null : this.client.profile<RawProfessions>(`${base}/professions`),
-        this.client.profile<RawStatistics>(`${base}/statistics`),
-      ]);
-      const classId = summary.character_class ? (CLASS_BY_BLIZZARD_ID[summary.character_class.id] ?? null) : null;
-      const items = equipment?.equipped_items ?? [];
-      const icons = await this.itemIcons(items.map((i) => i.item.id));
-      return {
-        name: summary.name,
-        level: summary.level,
-        classId,
-        race: summary.race?.name ?? null,
-        guild: summary.guild?.name ?? null,
-        itemLevel: summary.equipped_item_level ?? null,
-        lastLogin: summary.last_login_timestamp ? new Date(summary.last_login_timestamp).toISOString() : null,
-        avatarUrl: mediaUrl(media, "avatar"),
-        renderUrl: mediaUrl(media, "main-raw"),
-        faction: summary.faction?.type === "HORDE" ? "horde" : summary.faction?.type === "ALLIANCE" ? "alliance" : null,
-        stats: mapStats(statistics),
-        spec: inferSpec(classId, specs),
-        professions: mapProfessions(professions),
-        gear: items.map((i) => ({
-          slot: i.slot.type,
-          slotName: i.slot.name,
-          name: i.name,
-          quality: i.quality.type.toLowerCase(),
-          itemId: i.item.id,
-          icon: icons.get(i.item.id) ?? null,
-          tooltip: itemTooltip(i),
-        })),
-      };
-    });
+    // v3: entries carry Last-Modified for revalidation.
+    const key = `${this.keyPrefix}:character:v3:${lower}`;
+    const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
+    if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
+
+    const base = `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
+    try {
+      const res = await this.client.profileIfModified<RawSummary>(base, hit?.value.lastModified ?? null);
+      if (!res.modified && hit) {
+        const entry = { ...hit.value, info: await this.fillMissingIcons(hit.value.info) };
+        this.cache.set(key, entry, this.now());
+        return entry.info;
+      }
+      const summary = res.modified ? res.body : null;
+      const entry: CachedCharacter = summary
+        ? { info: await this.loadCharacter(base, summary), lastModified: res.modified ? res.lastModified : null }
+        : { info: null, lastModified: null };
+      this.cache.set(key, entry, this.now());
+      return entry.info;
+    } catch (err) {
+      if (hit && err instanceof BlizzardError) return hit.value.info;
+      throw err;
+    }
+  }
+
+  // Everything beyond the summary: four profile calls plus one icon search for uncached items.
+  private async loadCharacter(base: string, summary: RawSummary): Promise<CharacterInfo> {
+    const [equipment, specs, media, professions, statistics] = await Promise.all([
+      this.client.profile<RawEquipment>(`${base}/equipment`),
+      this.client.profile<RawSpecializations>(`${base}/specializations`),
+      this.client.profile<RawMedia>(`${base}/character-media`),
+      // Classic Era has no professions endpoint (always 404), so don't spend a call on it.
+      this.cfg.namespace === "classic1x" ? null : this.client.profile<RawProfessions>(`${base}/professions`),
+      this.client.profile<RawStatistics>(`${base}/statistics`),
+    ]);
+    const classId = summary.character_class ? (CLASS_BY_BLIZZARD_ID[summary.character_class.id] ?? null) : null;
+    const items = equipment?.equipped_items ?? [];
+    const icons = await this.itemIcons(items.map((i) => i.item.id));
+    return {
+      name: summary.name,
+      level: summary.level,
+      classId,
+      race: summary.race?.name ?? null,
+      guild: summary.guild?.name ?? null,
+      itemLevel: summary.equipped_item_level ?? null,
+      lastLogin: summary.last_login_timestamp ? new Date(summary.last_login_timestamp).toISOString() : null,
+      avatarUrl: mediaUrl(media, "avatar"),
+      renderUrl: mediaUrl(media, "main-raw"),
+      faction: summary.faction?.type === "HORDE" ? "horde" : summary.faction?.type === "ALLIANCE" ? "alliance" : null,
+      stats: mapStats(statistics),
+      spec: inferSpec(classId, specs),
+      professions: mapProfessions(professions),
+      gear: items.map((i) => ({
+        slot: i.slot.type,
+        slotName: i.slot.name,
+        name: i.name,
+        quality: i.quality.type.toLowerCase(),
+        itemId: i.item.id,
+        icon: icons.get(i.item.id) ?? null,
+        tooltip: itemTooltip(i),
+      })),
+    };
+  }
+
+  // An unchanged character can stay cached indefinitely, so retry icons that an earlier failed
+  // search left blank. Icons already cached (including "has none") cost no calls.
+  private async fillMissingIcons(info: CharacterInfo | null): Promise<CharacterInfo | null> {
+    const blank = info?.gear.filter((g) => g.icon === null) ?? [];
+    if (!info || blank.length === 0) return info;
+    const icons = await this.itemIcons(blank.map((g) => g.itemId));
+    return { ...info, gear: info.gear.map((g) => (g.icon === null ? { ...g, icon: icons.get(g.itemId) ?? null } : g)) };
   }
 
   // Icon URLs by item id. Cached icons are reused; the rest come from one media search per
