@@ -17,6 +17,10 @@ const TOKEN_MARGIN_MS = 60_000;
 
 type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "namespace">;
 
+// Result of a conditional GET: unchanged since the given time, or the current body (null on 404)
+// with its Last-Modified for the next check.
+export type Conditional<T> = { modified: false } | { modified: true; body: T | null; lastModified: string | null };
+
 // Client-credentials Battle.net client for the WoW Profile API. Server-side only.
 export class BlizzardClient {
   private token: { value: string; expiresAt: number } | null = null;
@@ -46,29 +50,50 @@ export class BlizzardClient {
     return this.get<T>(path, this.profileNamespace);
   }
 
+  // Profile GET with If-Modified-Since. Blizzard answers 304 when the character hasn't
+  // changed (all character endpoints share the last-login time as Last-Modified).
+  async profileIfModified<T>(path: string, since: string | null): Promise<Conditional<T>> {
+    const res = await this.request(path, this.profileNamespace, {}, since ? { "if-modified-since": since } : {});
+    if (res.status === 304) return { modified: false };
+    return { modified: true, body: await this.parse<T>(res), lastModified: res.headers.get("last-modified") };
+  }
+
   // GET a Game Data API path backed by static data (items, media, search). Resolves null on 404.
   gameData<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
     return this.get<T>(path, this.staticNamespace, params);
   }
 
   private async get<T>(path: string, namespace: string, params: Record<string, string> = {}): Promise<T | null> {
-    const query = new URLSearchParams({ ...params, namespace, locale: "en_US" });
-    const url = `https://${this.creds.region}.api.blizzard.com${path}?${query}`;
-    let res = await this.send(url, await this.accessToken());
-    if (res.status === 401) {
-      // Token revoked or expired early: fetch a fresh one and retry once.
-      this.token = null;
-      res = await this.send(url, await this.accessToken());
-    }
+    return this.parse<T>(await this.request(path, namespace, params));
+  }
+
+  private async parse<T>(res: Response): Promise<T | null> {
     if (res.status === 404) return null;
     if (!res.ok) throw new BlizzardError(`blizzard api returned ${res.status}`);
     return (await res.json()) as T;
   }
 
-  private async send(url: string, token: string): Promise<Response> {
+  private async request(
+    path: string,
+    namespace: string,
+    params: Record<string, string>,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
+    const query = new URLSearchParams({ ...params, namespace, locale: "en_US" });
+    const url = `https://${this.creds.region}.api.blizzard.com${path}?${query}`;
+    let res = await this.send(url, await this.accessToken(), headers);
+    if (res.status === 401) {
+      // Token revoked or expired early: fetch a fresh one and retry once.
+      this.token = null;
+      res = await this.send(url, await this.accessToken(), headers);
+    }
+    return res;
+  }
+
+  private async send(url: string, token: string, headers: Record<string, string>): Promise<Response> {
     try {
       return await this.fetchFn(url, {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { ...headers, authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch {

@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { ArmoryService, inferSpec, mapProfessions, mapStats, type RawItem } from "../src/armory.js";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache } from "../src/db.js";
-import { BASE, fakeBlizzard, guildFixture } from "./fake-blizzard.js";
+import { BASE, ICONS, fakeBlizzard, guildFixture, iconSearch } from "./fake-blizzard.js";
 
 const cfg = { region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" };
 const creds = { clientId: "id", clientSecret: "shh", region: "us", namespace: "classic1x" };
@@ -157,14 +157,23 @@ test("icon searches are batched 100 ids at a time", async () => {
   assert.deepEqual(batchSizes, [100, 50]);
 });
 
-test("icon search failures degrade to null and are retried next time", async () => {
+test("icon search failures degrade to null and fill in once Blizzard recovers", async () => {
   const routes: Record<string, unknown> = guildFixture();
   routes["/data/wow/search/media"] = { status: 503 };
   const { armory, fake, advance } = setup(routes);
   const c = await armory.character("jaina");
   assert.equal(c?.gear[0].icon, null);
   assert.equal(c?.gear[0].name, "Frostfire Circlet");
-  advance(4 * 60 * 60 * 1000);
+
+  // Character unchanged (304), but its blank icons are retried rather than cached forever.
+  routes["/data/wow/search/media"] = iconSearch;
+  advance(20 * 60 * 1000);
+  assert.equal((await armory.character("jaina"))?.gear[0].icon, ICONS[22498]);
+  assert.equal(searches(fake.calls), 2);
+  assert.equal(profileCalls(fake.calls), 6);
+
+  // Remaining blanks are items known to have no icon: no further searches.
+  advance(20 * 60 * 1000);
   await armory.character("jaina");
   assert.equal(searches(fake.calls), 2);
 });
@@ -197,15 +206,61 @@ test("Classic Era skips the professions call entirely", async () => {
   assert.ok(!fake.calls.some((c) => c.endsWith("/professions")));
 });
 
-test("results are cached until the TTL, keyed case-insensitively", async () => {
+const profileCalls = (calls: string[]) => calls.filter((c) => c.startsWith(BASE)).length;
+
+test("characters are served from cache for 15 minutes, keyed case-insensitively", async () => {
   const { armory, fake, advance } = setup();
   await armory.character("Jaina");
   const after = fake.calls.length;
+  advance(14 * 60 * 1000);
   await armory.character("JAINA");
   assert.equal(fake.calls.length, after);
-  advance(3 * 60 * 60 * 1000);
+});
+
+test("after 15 minutes an unchanged character costs one conditional call", async () => {
+  const { armory, fake, advance } = setup();
+  const first = await armory.character("jaina");
+  assert.equal(profileCalls(fake.calls), 5);
+  advance(30 * 24 * 60 * 60 * 1000); // long gaps are fine: there is no hard expiry
+  assert.deepEqual(await armory.character("jaina"), first);
+  assert.equal(profileCalls(fake.calls), 6);
+  // the 304 renewed freshness, so the next view within 15 minutes is free
+  advance(5 * 60 * 1000);
   await armory.character("jaina");
-  assert.ok(fake.calls.length > after);
+  assert.equal(profileCalls(fake.calls), 6);
+});
+
+test("a character who played since is refetched in full", async () => {
+  const routes = guildFixture();
+  const { armory, fake, advance } = setup(routes);
+  await armory.character("jaina");
+  (routes[`${BASE}/jaina`] as { equipped_item_level: number }).equipped_item_level = 71;
+  fake.state.lastModified = "Fri, 16 Oct 2026 12:00:00 GMT";
+  advance(20 * 60 * 1000);
+  assert.equal((await armory.character("jaina"))?.itemLevel, 71);
+  assert.equal(profileCalls(fake.calls), 10);
+  // and the new Last-Modified is what gets revalidated next
+  advance(20 * 60 * 1000);
+  await armory.character("jaina");
+  assert.equal(profileCalls(fake.calls), 11);
+});
+
+test("unknown characters are rechecked with one call after 15 minutes", async () => {
+  const { armory, fake, advance } = setup();
+  assert.equal(await armory.character("nobody"), null);
+  assert.equal(await armory.character("nobody"), null);
+  assert.equal(fake.calls.filter((c) => c.endsWith("/nobody")).length, 1);
+  advance(20 * 60 * 1000);
+  await armory.character("nobody");
+  assert.equal(fake.calls.filter((c) => c.endsWith("/nobody")).length, 2);
+});
+
+test("a cached character is served when revalidation fails", async () => {
+  const { armory, fake, advance } = setup();
+  const first = await armory.character("jaina");
+  advance(20 * 60 * 1000);
+  fake.state.apiDown = true;
+  assert.deepEqual(await armory.character("jaina"), first);
 });
 
 test("stale cache is served when Blizzard is down; errors surface without a cache", async () => {

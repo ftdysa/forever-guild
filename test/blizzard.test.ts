@@ -75,3 +75,17 @@ test("a 401 from the api refreshes the token and retries once", async () => {
   assert.equal(apiCalls, 2);
   assert.equal(tokens, 2);
 });
+
+test("profileIfModified sends If-Modified-Since and maps 304 / 200 / 404", async () => {
+  const fake = fakeBlizzard({ "/c": { name: "Jaina" } });
+  const client = new BlizzardClient(creds, fake.fetchFn);
+  const first = await client.profileIfModified<{ name: string }>("/c", null);
+  assert.deepEqual(first, { modified: true, body: { name: "Jaina" }, lastModified: fake.state.lastModified });
+  assert.deepEqual(await client.profileIfModified("/c", fake.state.lastModified), { modified: false });
+  assert.deepEqual(await client.profileIfModified("/c", "Thu, 01 Jan 2026 00:00:00 GMT"), {
+    modified: true,
+    body: { name: "Jaina" },
+    lastModified: fake.state.lastModified,
+  });
+  assert.deepEqual(await client.profileIfModified("/missing", null), { modified: true, body: null, lastModified: null });
+});
