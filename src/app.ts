@@ -6,16 +6,20 @@ import fastifyStatic from "@fastify/static";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Config } from "./config.js";
-import { MemberStore, openDatabase } from "./db.js";
+import { ArmoryCache, MemberStore, openDatabase } from "./db.js";
+import { ArmoryService } from "./armory.js";
+import { BlizzardClient, type FetchFn } from "./blizzard.js";
 import { gameData } from "./game-data.js";
 import { SessionStore } from "./sessions.js";
 import { loginRoute, logoutRoute, readSessionToken } from "./routes/auth.js";
 import { memberRoutes } from "./routes/members.js";
+import { armoryRoutes } from "./routes/armory.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     config: Config;
     store: MemberStore;
+    armory: ArmoryService | null;
     sessions: SessionStore;
     clientIp: (req: FastifyRequest) => string;
   }
@@ -23,7 +27,12 @@ declare module "fastify" {
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
-export function buildApp(config: Config): FastifyInstance {
+export interface AppDeps {
+  // Replaces global fetch for Blizzard calls (tests).
+  blizzardFetch?: FetchFn;
+}
+
+export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test" && process.env.LOG !== "off",
     // Trust only the one proxy in front of us. `true` would trust every X-Forwarded-For
@@ -34,6 +43,11 @@ export function buildApp(config: Config): FastifyInstance {
   app.decorate("config", config);
   const db = openDatabase(config.dbPath);
   app.decorate("store", new MemberStore(db));
+  const bz = config.blizzard;
+  app.decorate(
+    "armory",
+    bz ? new ArmoryService(new BlizzardClient(bz, deps.blizzardFetch), new ArmoryCache(db), bz) : null,
+  );
   app.decorate("sessions", new SessionStore(db, config.guildPassphrase, config.sessionSecret));
   app.decorate("clientIp", (req: FastifyRequest) => {
     const fromHeader = config.clientIpHeader ? req.headers[config.clientIpHeader] : undefined;
@@ -48,7 +62,8 @@ export function buildApp(config: Config): FastifyInstance {
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "https://fonts.googleapis.com"],
         fontSrc: ["https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:"],
+        // Character avatars come from Blizzard's render CDN.
+        imgSrc: ["'self'", "data:", "https://render.worldofwarcraft.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         upgradeInsecureRequests: config.cookieSecure ? [] : null,
@@ -83,6 +98,7 @@ export function buildApp(config: Config): FastifyInstance {
         });
         secured.register(logoutRoute);
         secured.register(memberRoutes);
+        secured.register(armoryRoutes);
       });
     },
     { prefix: "/api" },

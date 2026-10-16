@@ -15,7 +15,7 @@ export interface MemberInput {
 
 export type ValidationResult = { ok: true; value: MemberInput } | { ok: false; errors: string[] };
 
-const NAME_RE = /^\p{L}{2,24}$/u;
+export const NAME_RE = /^\p{L}{2,24}$/u;
 const NOTES_MAX = 280;
 const SECONDARY_MAX = 3;
 

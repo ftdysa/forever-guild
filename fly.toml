@@ -4,6 +4,7 @@
 #
 # Single machine only: the roster is a SQLite file on one volume.
 # Secrets (not in this file): fly secrets set GUILD_PASSPHRASE=... SESSION_SECRET=...
+#   BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...
 
 app = 'geriatrics-guild'
 primary_region = 'iad'
@@ -18,6 +19,11 @@ primary_region = 'iad'
   TRUST_PROXY = 'true'
   # Fly's proxy sets this to the real client address; rate limiting keys on it.
   CLIENT_IP_HEADER = 'fly-client-ip'
+  # Armory PoC guild. Switching guilds: change these, then wipe with reset-data (see README).
+  BLIZZARD_REGION = 'us'
+  BLIZZARD_NAMESPACE = 'classic1x'
+  BLIZZARD_REALM = 'doomhowl'
+  BLIZZARD_GUILD = 'fatal'
 
 [[mounts]]
   source = 'data'

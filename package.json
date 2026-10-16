@@ -12,7 +12,8 @@
     "start": "node dist/server.js",
     "test": "NODE_ENV=test node --import tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "reset-data": "tsx src/reset-data.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
