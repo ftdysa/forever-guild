@@ -1,4 +1,4 @@
-# WoW Forever Guild Roster — Design
+# Geriatrics Guild Roster — Design
 
 Date: 2026-10-14
 
@@ -74,6 +74,8 @@ Table `members`:
 | backup_spec           | text    | nullable; required if backup_class set     |
 | primary_professions   | text    | JSON array, exactly 2 distinct primary ids |
 | secondary_professions | text    | JSON array, 0..3 distinct secondary ids    |
+| sweat_factor          | text    | nullable; meh/casual/interested/sweaty/world-first |
+| leveling_pref         | text    | nullable; solo/duo/orgy                    |
 | notes                 | text    | optional, max 280 chars                    |
 | created_at            | text    | ISO-8601                                   |
 | updated_at            | text    | ISO-8601                                   |
@@ -87,6 +89,11 @@ Validation rules (server side, pure function in `validate.ts`):
 4. `primaryProfessions`: exactly 2 distinct known primary ids.
 5. `secondaryProfessions`: 0..3 distinct known secondary ids.
 6. `notes`: optional string, max 280 chars after trim.
+7. `sweatFactor`, `levelingPref`: optional; missing/null/"" → null, otherwise
+   a known id from `SWEAT_FACTORS` / `LEVELING_PREFS`.
+
+Columns added after the initial schema are listed in `ADDED_COLUMNS` in
+`db.ts` and ALTERed into existing databases on startup.
 
 The validator returns `{ ok: true, value }` with a normalized payload or
 `{ ok: false, errors: string[] }`.
@@ -95,7 +102,7 @@ The validator returns `{ ok: true, value }` with a normalized payload or
 
 | method | path                | body / result                                   |
 |--------|---------------------|-------------------------------------------------|
-| GET    | /api/game-data      | `{ classes, professions }`                      |
+| GET    | /api/game-data      | `{ classes, professions, sweatFactors, levelingPrefs }` |
 | POST   | /api/login          | `{ passphrase }` → 204 / 401                    |
 | POST   | /api/logout         | 204                                             |
 | GET    | /api/members        | `Member[]` sorted by character name             |
@@ -107,7 +114,8 @@ Errors: `{ error: string, details?: string[] }`. 400 validation, 401 no
 session, 404 unknown id, 409 duplicate character name.
 
 Member JSON shape uses camelCase: `id, characterName, mainClass, mainSpec,
-backupClass, backupSpec, primaryProfessions, secondaryProfessions, notes,
+backupClass, backupSpec, primaryProfessions, secondaryProfessions,
+sweatFactor, levelingPref, notes,
 createdAt, updatedAt`.
 
 ## UI
@@ -119,12 +127,14 @@ Single page, three regions:
 2. **Roster.** Coverage strip on top: counts of Tank / Healer / DPS across
    mains, and counts per primary profession across all members. Below, a
    table: character name, main (class color + spec + role badge), backup
-   (same, or em dash), primaries, secondaries, notes, Edit / Delete.
+   (same, or em dash), primaries, secondaries, sweat factor, leveling pref,
+   notes, Edit / Delete.
    Delete asks for confirmation with an in-page dialog, never
    `window.confirm`.
 3. **Form drawer.** Slides in for Add / Edit. Class select drives the spec
    select. Backup class select includes "None". Two primary selects,
-   secondary checkboxes, notes textarea. Server errors render as a list
+   secondary checkboxes, a Playstyle fieldset (sweat factor and leveling pref
+   selects, both optional), notes textarea. Server errors render as a list
    above the submit button.
 
 ### WoW aesthetic (required)

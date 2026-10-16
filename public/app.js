@@ -7,7 +7,7 @@ const ICONS = {
 };
 const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
 
-let game = null; // { classes, professions }
+let game = null; // { classes, professions, sweatFactors, levelingPrefs }
 let members = [];
 let pendingDeleteId = null;
 
@@ -30,17 +30,29 @@ const specOf = (classId, specId) => classById(classId)?.specs.find((s) => s.id =
 const profName = (id) => game.professions.find((p) => p.id === id)?.name ?? id;
 const primaries = () => game.professions.filter((p) => p.kind === "primary");
 const secondaries = () => game.professions.filter((p) => p.kind === "secondary");
+const DASH = '<span class="muted">—</span>';
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function classCell(classId, specId) {
-  if (!classId) return '<span class="muted">—</span>';
+  if (!classId) return DASH;
   const c = classById(classId);
   const s = specOf(classId, specId);
   const badge = s ? `<span class="badge">${ICONS[s.role]}${ROLE_LABEL[s.role]}</span>` : "";
   return `<span class="cls" style="color:${c.color}">${esc(c.name)}</span>${badge}<br><span class="spec">${esc(s?.name ?? specId)}</span>`;
+}
+
+function sweatCell(id) {
+  const i = game.sweatFactors.findIndex((c) => c.id === id);
+  if (i < 0) return DASH;
+  return `<span class="pill sweat-${i}">${esc(game.sweatFactors[i].name)}</span>`;
+}
+
+function levelingCell(id) {
+  const c = game.levelingPrefs.find((x) => x.id === id);
+  return c ? `<span class="pill">${esc(c.name)}</span>` : DASH;
 }
 
 function fillSelect(sel, items, { placeholder } = {}) {
@@ -96,8 +108,10 @@ function renderRoster() {
       <td data-label="Main">${classCell(m.mainClass, m.mainSpec)}</td>
       <td data-label="Backup">${classCell(m.backupClass, m.backupSpec)}</td>
       <td data-label="Primaries">${m.primaryProfessions.map((p) => esc(profName(p))).join(", ")}</td>
-      <td data-label="Secondaries">${m.secondaryProfessions.length ? m.secondaryProfessions.map((p) => esc(profName(p))).join(", ") : '<span class="muted">—</span>'}</td>
-      <td data-label="Notes">${m.notes ? esc(m.notes) : '<span class="muted">—</span>'}</td>
+      <td data-label="Secondaries">${m.secondaryProfessions.length ? m.secondaryProfessions.map((p) => esc(profName(p))).join(", ") : DASH}</td>
+      <td data-label="Sweat Factor">${sweatCell(m.sweatFactor)}</td>
+      <td data-label="Leveling Pref">${levelingCell(m.levelingPref)}</td>
+      <td data-label="Notes">${m.notes ? esc(m.notes) : DASH}</td>
       <td class="actions">
         <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
         <button class="btn btn-danger btn-small" data-action="delete">Remove</button>
@@ -139,6 +153,8 @@ function openDrawer(member) {
   for (const cb of document.querySelectorAll("#f-secondaries input")) {
     cb.checked = member?.secondaryProfessions.includes(cb.value) ?? false;
   }
+  $("#f-sweat").value = member?.sweatFactor ?? "";
+  $("#f-leveling").value = member?.levelingPref ?? "";
   $("#f-notes").value = member?.notes ?? "";
   const d = $("#drawer");
   d.classList.remove("hidden");
@@ -161,6 +177,8 @@ function formPayload() {
     backupSpec: $("#f-backup-spec").value || null,
     primaryProfessions: [$("#f-prim-1").value, $("#f-prim-2").value],
     secondaryProfessions: [...document.querySelectorAll("#f-secondaries input:checked")].map((cb) => cb.value),
+    sweatFactor: $("#f-sweat").value || null,
+    levelingPref: $("#f-leveling").value || null,
     notes: $("#f-notes").value,
   };
 }
@@ -197,6 +215,8 @@ function initForm() {
   fillSelect($("#f-backup-class"), game.classes, { placeholder: "None" });
   fillSelect($("#f-prim-1"), primaries());
   fillSelect($("#f-prim-2"), primaries());
+  fillSelect($("#f-sweat"), game.sweatFactors, { placeholder: "—" });
+  fillSelect($("#f-leveling"), game.levelingPrefs, { placeholder: "—" });
   $("#f-secondaries").innerHTML = secondaries()
     .map((p) => `<label><input type="checkbox" value="${p.id}" /> ${esc(p.name)}</label>`)
     .join("");

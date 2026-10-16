@@ -10,6 +10,8 @@ const good = {
   backupSpec: "protection",
   primaryProfessions: ["alchemy", "herbalism"],
   secondaryProfessions: ["cooking", "first-aid"],
+  sweatFactor: "sweaty",
+  levelingPref: "duo",
   notes: "  raid lead  ",
 };
 
@@ -29,6 +31,8 @@ test("accepts a valid payload and normalizes it", () => {
     backupSpec: "protection",
     primaryProfessions: ["alchemy", "herbalism"],
     secondaryProfessions: ["cooking", "first-aid"],
+    sweatFactor: "sweaty",
+    levelingPref: "duo",
     notes: "raid lead",
   });
 });
@@ -93,6 +97,20 @@ test("secondary profession rules", () => {
   assert.ok(errorsOf({ ...good, secondaryProfessions: ["cooking", "fishing", "first-aid", "cooking"] }).includes("secondaryProfessions must be distinct secondary professions"));
   // 4 entries: rejected by the length cap before the distinct check
   assert.ok(validateMember({ ...good, secondaryProfessions: undefined }).ok);
+});
+
+test("sweat factor and leveling pref are optional choices", () => {
+  for (const empty of [undefined, null, ""]) {
+    const r = validateMember({ ...good, sweatFactor: empty, levelingPref: empty });
+    assert.ok(r.ok);
+    assert.equal(r.value.sweatFactor, null);
+    assert.equal(r.value.levelingPref, null);
+  }
+  assert.ok(validateMember({ ...good, sweatFactor: "world-first", levelingPref: "orgy" }).ok);
+  assert.ok(errorsOf({ ...good, sweatFactor: "tryhard" }).includes("sweatFactor is not a known sweat factor"));
+  assert.ok(errorsOf({ ...good, sweatFactor: 3 }).includes("sweatFactor is not a known sweat factor"));
+  assert.ok(errorsOf({ ...good, levelingPref: "trio" }).includes("levelingPref is not a known leveling preference"));
+  assert.ok(errorsOf({ ...good, levelingPref: ["solo"] }).includes("levelingPref is not a known leveling preference"));
 });
 
 test("notes rules", () => {

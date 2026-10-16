@@ -1,4 +1,4 @@
-import { findClass, findSpec, PRIMARY_IDS, SECONDARY_IDS } from "./game-data.js";
+import { findClass, findSpec, LEVELING_PREFS, PRIMARY_IDS, SECONDARY_IDS, SWEAT_FACTORS, type Choice } from "./game-data.js";
 
 export interface MemberInput {
   characterName: string;
@@ -8,6 +8,8 @@ export interface MemberInput {
   backupSpec: string | null;
   primaryProfessions: string[];
   secondaryProfessions: string[];
+  sweatFactor: string | null;
+  levelingPref: string | null;
   notes: string;
 }
 
@@ -23,6 +25,13 @@ function isStringArray(v: unknown): v is string[] {
 
 function distinct(arr: string[]): boolean {
   return new Set(arr).size === arr.length;
+}
+
+/** Optional choice: missing/null/"" → null; otherwise must be one of `choices`. */
+function optionalChoice(v: unknown, choices: Choice[]): { ok: boolean; value: string | null } {
+  if (v === undefined || v === null || v === "") return { ok: true, value: null };
+  if (typeof v === "string" && choices.some((c) => c.id === v)) return { ok: true, value: v };
+  return { ok: false, value: null };
 }
 
 export function validateMember(input: unknown): ValidationResult {
@@ -47,7 +56,7 @@ export function validateMember(input: unknown): ValidationResult {
     errors.push("backupSpec must be a string or null");
   }
 
-  let backupClass: string | null = typeof raw.backupClass === "string" && raw.backupClass !== "" ? raw.backupClass : null;
+  const backupClass: string | null = typeof raw.backupClass === "string" && raw.backupClass !== "" ? raw.backupClass : null;
   let backupSpec: string | null = typeof raw.backupSpec === "string" && raw.backupSpec !== "" ? raw.backupSpec : null;
   if (backupClass === null) {
     backupSpec = null;
@@ -77,6 +86,11 @@ export function validateMember(input: unknown): ValidationResult {
     errors.push("secondaryProfessions must be distinct secondary professions");
   }
 
+  const sweatFactor = optionalChoice(raw.sweatFactor, SWEAT_FACTORS);
+  if (!sweatFactor.ok) errors.push("sweatFactor is not a known sweat factor");
+  const levelingPref = optionalChoice(raw.levelingPref, LEVELING_PREFS);
+  if (!levelingPref.ok) errors.push("levelingPref is not a known leveling preference");
+
   let notes = "";
   if (raw.notes !== undefined && raw.notes !== null) {
     if (typeof raw.notes !== "string") errors.push("notes must be at most 280 characters");
@@ -97,6 +111,8 @@ export function validateMember(input: unknown): ValidationResult {
       backupSpec,
       primaryProfessions: primaryProfessions as string[],
       secondaryProfessions: secondaryProfessions as string[],
+      sweatFactor: sweatFactor.value,
+      levelingPref: levelingPref.value,
       notes,
     },
   };

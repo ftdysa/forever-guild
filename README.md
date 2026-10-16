@@ -30,9 +30,17 @@ npm run dev
 ## Test
 
 ```bash
-npm test
+npm run lint
 npm run typecheck
+npm test
 ```
+
+## CI / deploy
+
+- Pull requests run lint, typecheck, and tests (`.github/workflows/ci.yml`).
+- Pushes to `main` run the same checks, then `flyctl deploy` to the
+  `geriatrics-guild` Fly app (`.github/workflows/deploy.yml`). Needs a
+  `FLY_API_TOKEN` repo secret from `fly tokens create deploy`.
 
 ## API
 

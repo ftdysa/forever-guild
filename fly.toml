@@ -1,0 +1,43 @@
+# fly.toml app configuration file generated for geriatrics-guild on 2026-10-16T10:25:36-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+# Single machine only: the roster is a SQLite file on one volume.
+# Secrets (not in this file): fly secrets set GUILD_PASSPHRASE=... SESSION_SECRET=...
+
+app = 'geriatrics-guild'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+  DB_PATH = '/data/roster.db'
+  COOKIE_SECURE = 'true'
+  TRUST_PROXY = 'true'
+
+[[mounts]]
+  source = 'data'
+  destination = '/data'
+  auto_extend_size_threshold = 80
+  auto_extend_size_increment = '1GB'
+  auto_extend_size_limit = '10GB'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = 'GET'
+    path = '/api/game-data'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
