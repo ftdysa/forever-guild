@@ -88,15 +88,16 @@ test("notifier posts the embed with mentions disabled", async () => {
 });
 
 test("notifier swallows non-2xx and network errors without logging the url", async () => {
-  for (const fetchFn of [
-    (async () => new Response("slow down", { status: 429 })) as unknown as FetchFn,
-    (async () => {
+  for (const [fetchFn, expectedPayload] of [
+    [(async () => new Response("slow down", { status: 429 })) as unknown as FetchFn, { status: 429 }],
+    [(async () => {
       throw new Error("boom");
-    }) as unknown as FetchFn,
+    }) as unknown as FetchFn, { error: "boom" }],
   ]) {
     const { log, warnings } = fakeLog();
     await new DiscordNotifier({ webhookUrl: HOOK }, log, fetchFn).memberJoined(thrall);
     assert.equal(warnings.length, 1);
+    assert.deepEqual(warnings[0][0], expectedPayload);
     assert.equal(JSON.stringify(warnings).includes(HOOK), false);
   }
 });

@@ -67,7 +67,10 @@ export class DiscordNotifier {
         body: JSON.stringify({ embeds: [buildJoinEmbed(m, this.config.siteUrl)], allowed_mentions: { parse: [] } }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (!res.ok) this.log.warn({ status: res.status }, "discord webhook rejected");
+      if (!res.ok) {
+        this.log.warn({ status: res.status }, "discord webhook rejected");
+        await res.body?.cancel();
+      }
     } catch (err) {
       this.log.warn({ error: (err as Error).message }, "discord webhook failed");
     }
