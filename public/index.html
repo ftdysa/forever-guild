@@ -38,13 +38,18 @@
         <button id="logout-btn" class="btn btn-ghost">Leave Hall</button>
       </div>
 
+      <nav class="tabs" aria-label="Views">
+        <a href="#" class="tab" data-tab="roster">Roster</a>
+        <a href="#classes" class="tab" data-tab="classes">Classes</a>
+      </nav>
+
       <section class="panel coverage" aria-label="Coverage">
         <h2>Coverage</h2>
         <div id="role-coverage" class="coverage-row"></div>
         <div id="prof-coverage" class="coverage-row"></div>
       </section>
 
-      <section class="panel" aria-label="Roster">
+      <section id="roster-panel" class="panel" aria-label="Roster">
         <h2>Roster</h2>
         <p id="empty-msg" class="muted hidden">No members yet. Be the first to sign the ledger.</p>
         <table id="roster-table" class="roster">
@@ -63,6 +68,11 @@
           </thead>
           <tbody id="roster-body"></tbody>
         </table>
+      </section>
+
+      <section id="class-overview" class="panel hidden" aria-label="Classes">
+        <h2>Classes</h2>
+        <div id="class-grid" class="class-grid"></div>
       </section>
     </section>
   </main>
