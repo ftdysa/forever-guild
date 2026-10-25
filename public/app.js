@@ -1,3 +1,5 @@
+import { classOverview } from "./class-overview.js";
+
 const $ = (sel) => document.querySelector(sel);
 
 const ICONS = {
@@ -108,6 +110,38 @@ function renderCoverage() {
     .join("");
 }
 
+// A character name, linked to the armory when it is enabled. Clicks are handled on #roster.
+function characterName(name, cls) {
+  return armory
+    ? `<button class="${cls} link" data-action="armory" data-name="${esc(name)}" title="View armory">${esc(name)}</button>`
+    : `<span class="${cls}">${esc(name)}</span>`;
+}
+
+const memberList = (names) => names.map((n) => characterName(n, "member")).join(", ");
+
+function renderClassOverview() {
+  const grid = $("#class-grid");
+  grid.innerHTML = classOverview(members, game.classes)
+    .map(
+      ({ cls, mainCount, backupCount, specs }) => `
+    <article class="class-card">
+      <h3><span class="cls" data-class="${esc(cls.id)}">${esc(cls.name)}</span><span class="muted">${mainCount} main · ${backupCount} backup</span></h3>
+      <ul>${specs
+        .map(
+          ({ spec, mains, backups }) => `
+        <li class="spec-row${mains.length || backups.length ? "" : " empty"}">
+          <span class="spec-head">${ICONS[spec.role]}<span>${esc(spec.name)}</span><b>${mains.length}</b></span>
+          ${mains.length ? `<span class="spec-names">${memberList(mains)}</span>` : ""}
+          ${backups.length ? `<span class="spec-backups muted">+${backups.length} backup: ${memberList(backups)}</span>` : ""}
+        </li>`,
+        )
+        .join("")}</ul>
+    </article>`,
+    )
+    .join("");
+  paintClasses(grid);
+}
+
 function renderRoster() {
   const body = $("#roster-body");
   $("#empty-msg").classList.toggle("hidden", members.length > 0);
@@ -116,11 +150,7 @@ function renderRoster() {
     .map(
       (m) => `
     <tr data-id="${m.id}">
-      <td data-label="Character">${
-        armory
-          ? `<button class="name link" data-action="armory" title="View armory">${esc(m.characterName)}</button>`
-          : `<span class="name">${esc(m.characterName)}</span>`
-      }</td>
+      <td data-label="Character">${characterName(m.characterName, "name")}</td>
       <td data-label="Main">${classCell(m.mainClass, m.mainSpec)}</td>
       <td data-label="Backup">${classCell(m.backupClass, m.backupSpec)}</td>
       <td data-label="Primaries">${m.primaryProfessions.map((p) => esc(profName(p))).join(", ")}</td>
@@ -137,6 +167,7 @@ function renderRoster() {
     .join("");
   paintClasses(body);
   renderCoverage();
+  renderClassOverview();
 }
 
 function showGate(msg) {
@@ -150,6 +181,18 @@ function showGate(msg) {
 function showRoster() {
   $("#gate").classList.add("hidden");
   $("#roster").classList.remove("hidden");
+}
+
+function applyTab() {
+  const tab = location.hash === "#classes" ? "classes" : "roster";
+  $("#roster-panel").classList.toggle("hidden", tab !== "roster");
+  $("#class-overview").classList.toggle("hidden", tab !== "classes");
+  for (const a of document.querySelectorAll(".tab")) {
+    const on = a.dataset.tab === tab;
+    a.classList.toggle("active", on);
+    if (on) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
 }
 
 // ---------- Drawer ----------
@@ -539,13 +582,18 @@ $("#roster-body").addEventListener("click", (e) => {
   const m = members.find((x) => x.id === id);
   if (!m) return;
   if (btn.dataset.action === "edit") openDrawer(m);
-  if (btn.dataset.action === "armory") openArmory(m.characterName);
   if (btn.dataset.action === "delete") {
     pendingDeleteId = id;
     $("#confirm-text").textContent = `${m.characterName} will be struck from the ledger.`;
     $("#confirm").showModal();
   }
 });
+
+$("#roster").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-action='armory']");
+  if (btn) openArmory(btn.dataset.name);
+});
+window.addEventListener("hashchange", applyTab);
 
 $("#import-btn").addEventListener("click", openImport);
 $("#import-close").addEventListener("click", () => $("#import").close());
@@ -605,6 +653,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- Boot ----------
 (async function boot() {
+  applyTab();
   const r = await api("GET", "/api/game-data");
   if (!r.ok || !r.data) {
     showGate("The guild hall is unreachable right now.");
