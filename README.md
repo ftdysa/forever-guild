@@ -83,6 +83,16 @@ item level, and a spec guessed from talent points.
 - On Fly, set the credentials as secrets: `fly secrets set BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...`.
   Realm and guild live in `fly.toml` `[env]`.
 
+## Discord announcements
+
+Optional. With `DISCORD_WEBHOOK_URL` set (see `.env.example`), each new roster
+member is posted to that channel as an embed in their class colour, linking to
+`SITE_URL` when set. Edits and removals are not posted. Delivery is
+best-effort: if Discord is down the post is dropped and the roster save still
+succeeds.
+
+- The webhook URL is a secret. On Fly: `fly secrets set DISCORD_WEBHOOK_URL=...`.
+
 ### Switching guilds / wiping PoC data
 
 `reset-data` deletes every member and all cached armory data. Sessions are kept.

@@ -17,6 +17,8 @@ export const memberRoutes: FastifyPluginCallback = (app, _opts, done) => {
     try {
       const created = app.store.create(v.value);
       audit(req, "member.create", { memberId: created.id, characterName: created.characterName });
+      // Not awaited: Discord must not delay or fail the response.
+      void app.notifier?.memberJoined(created);
       return reply.code(201).send(created);
     } catch (err) {
       if (err instanceof DuplicateNameError) return reply.code(409).send({ error: err.message });

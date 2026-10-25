@@ -9,6 +9,7 @@ import type { Config } from "./config.js";
 import { ArmoryCache, MemberStore, openDatabase } from "./db.js";
 import { ArmoryService } from "./armory.js";
 import { BlizzardClient, type FetchFn } from "./blizzard.js";
+import { DiscordNotifier } from "./discord.js";
 import { gameData } from "./game-data.js";
 import { SessionStore } from "./sessions.js";
 import { loginRoute, logoutRoute, readSessionToken } from "./routes/auth.js";
@@ -20,6 +21,7 @@ declare module "fastify" {
     config: Config;
     store: MemberStore;
     armory: ArmoryService | null;
+    notifier: DiscordNotifier | null;
     sessions: SessionStore;
     clientIp: (req: FastifyRequest) => string;
   }
@@ -30,6 +32,8 @@ const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public")
 export interface AppDeps {
   // Replaces global fetch for Blizzard calls (tests).
   blizzardFetch?: FetchFn;
+  // Replaces global fetch for Discord webhook calls (tests).
+  discordFetch?: FetchFn;
 }
 
 export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
@@ -48,6 +52,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
     "armory",
     bz ? new ArmoryService(new BlizzardClient(bz, deps.blizzardFetch), new ArmoryCache(db), bz) : null,
   );
+  app.decorate("notifier", config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null);
   app.decorate("sessions", new SessionStore(db, config.guildPassphrase, config.sessionSecret));
   app.decorate("clientIp", (req: FastifyRequest) => {
     const fromHeader = config.clientIpHeader ? req.headers[config.clientIpHeader] : undefined;

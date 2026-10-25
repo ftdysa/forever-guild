@@ -4,7 +4,7 @@
 #
 # Single machine only: the roster is a SQLite file on one volume.
 # Secrets (not in this file): fly secrets set GUILD_PASSPHRASE=... SESSION_SECRET=...
-#   BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...
+#   BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=... DISCORD_WEBHOOK_URL=...
 
 app = 'geriatrics-guild'
 primary_region = 'iad'
@@ -24,6 +24,7 @@ primary_region = 'iad'
   BLIZZARD_NAMESPACE = 'classic1x'
   BLIZZARD_REALM = 'doomhowl'
   BLIZZARD_GUILD = 'fatal'
+  SITE_URL = 'https://geriatrics-guild.fly.dev'
 
 [[mounts]]
   source = 'data'
