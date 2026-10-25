@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CLASSES } from "../src/game-data.js";
-import { classOverview } from "../public/class-overview.js";
+import { byCoverage, classOverview } from "../public/class-overview.js";
 
 const m = (characterName: string, mainClass: string, mainSpec: string, backupClass: string | null = null, backupSpec: string | null = null) => ({
   characterName, mainClass, mainSpec, backupClass, backupSpec,
@@ -45,4 +45,15 @@ test("groups mains and backups by class and spec, keeping member order", () => {
 test("ignores unknown class/spec pairs", () => {
   const out = classOverview([m("Ghost", "deathknight", "blood"), m("Odd", "mage", "nope")], CLASSES);
   assert.equal(out.reduce((n, c) => n + c.mainCount + c.backupCount, 0), 0);
+});
+
+test("byCoverage sorts by mains, then backups, keeping class order for ties", () => {
+  const out = byCoverage(classOverview([
+    m("A", "mage", "fire"),
+    m("B", "paladin", "holy", "mage", "frost"),
+    m("C", "paladin", "holy"),
+    m("D", "rogue", "combat"),
+  ], CLASSES));
+  assert.deepEqual(out.slice(0, 3).map((c) => c.cls.id), ["paladin", "mage", "rogue"]);
+  assert.deepEqual(out.slice(3).map((c) => c.cls.id), CLASSES.map((c) => c.id).filter((id) => !["paladin", "mage", "rogue"].includes(id)));
 });

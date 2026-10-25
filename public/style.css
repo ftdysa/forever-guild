@@ -157,6 +157,31 @@ p.error { padding-left: 0; }
 .tab:hover, .tab:focus-visible { outline: none; color: var(--gold-hi); }
 .tab.active { color: var(--gold-hi); border-color: var(--gold-dim); background: var(--panel-2); }
 
+/* Class chart: horizontal bars, 14px thick, 4px rounded data-end, 2px gap between segments */
+.class-chart { position: relative; margin: 0 0 20px; }
+.chart-legend { display: flex; gap: 16px; justify-content: flex-end; font-family: var(--font-head); font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { display: inline-block; width: 14px; height: 10px; border-radius: 0 3px 3px 0; background: var(--gold); }
+.key-backup { opacity: 0.4; }
+.bars { list-style: none; margin: 0; padding: 0; }
+.bar-row { display: grid; grid-template-columns: 7.5em 1fr; align-items: center; gap: 10px; padding: 4px 6px; cursor: default; }
+.bar-row:hover, .bar-row:focus-visible { outline: none; background: rgba(200, 170, 110, 0.07); }
+.bar-label { font-family: var(--font-head); font-size: 13px; color: var(--text); }
+.bar-track { display: flex; align-items: center; height: 20px; border-left: 1px solid var(--gold-dim); }
+.bar-seg { height: 14px; }
+.bar-seg.end { border-radius: 0 4px 4px 0; }
+.bar-seg + .bar-seg { margin-left: 2px; }
+.bar-seg.backup { opacity: 0.4; }
+.bar-value { margin-left: 8px; font-family: var(--font-head); font-size: 14px; color: var(--gold-hi); font-variant-numeric: tabular-nums; }
+.bar-value .muted { font-size: 12px; }
+.bar-tip {
+  position: absolute; left: calc(7.5em + 16px); z-index: 2; min-width: 180px;
+  background: var(--panel); border: 1px solid var(--gold-dim); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  padding: 8px 10px; font-size: 14px; pointer-events: none;
+}
+.bar-tip b { display: block; font-family: var(--font-head); color: var(--gold-hi); margin-bottom: 4px; }
+.tip-row { display: flex; justify-content: space-between; gap: 16px; }
+
 /* Class overview */
 .class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 16px; }
 .class-card { border: 1px solid var(--gold-dim); background: #0f0d09; padding: 12px; }
