@@ -52,8 +52,8 @@ any future field from pinging.
 
 `DiscordNotifier` in `src/discord.ts`:
 
-- Constructed with the discord config, an injectable `FetchFn` (same pattern
-  as `blizzardFetch`), and a logger.
+- Constructed with the discord config, a logger, and an injectable `FetchFn`
+  (same pattern as `blizzardFetch`).
 - `memberJoined(member): Promise<void>` — POSTs JSON with a 5 s
   `AbortSignal.timeout`. Never throws: non-2xx logs `warn` with the status;
   network/timeout errors log `warn` with the error message. The webhook URL is
