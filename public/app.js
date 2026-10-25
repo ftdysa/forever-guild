@@ -1,4 +1,4 @@
-import { classOverview } from "./class-overview.js";
+import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -119,9 +119,60 @@ function characterName(name, cls) {
 
 const memberList = (names) => names.map((n) => characterName(n, "member")).join(", ");
 
+// Horizontal bars, most-played first: a class-coloured main segment plus a faint backup segment.
+// Widths and colours go through the DOM, not style="", to keep the CSP free of 'unsafe-inline'.
+const BAR_VALUE_ROOM_EM = 4;
+const hideBarTip = () => $("#bar-tip").classList.add("hidden");
+
+function renderClassBars(overview) {
+  const rows = byCoverage(overview);
+  const max = Math.max(1, ...rows.map((r) => r.mainCount + r.backupCount));
+  const list = $("#class-bars");
+  hideBarTip();
+  list.innerHTML = rows
+    .map(
+      ({ cls, mainCount, backupCount }) => `
+    <li class="bar-row" data-class="${esc(cls.id)}" tabindex="0" aria-label="${esc(cls.name)}: ${mainCount} main, ${backupCount} backup">
+      <span class="bar-label">${esc(cls.name)}</span>
+      <span class="bar-track">${mainCount ? `<span class="bar-seg${backupCount ? "" : " end"}" data-n="${mainCount}"></span>` : ""}${
+        backupCount ? `<span class="bar-seg backup end" data-n="${backupCount}"></span>` : ""
+      }<span class="bar-value">${mainCount}${backupCount ? `<span class="muted"> +${backupCount}</span>` : ""}</span></span>
+    </li>`,
+    )
+    .join("");
+  for (const row of list.children) {
+    const color = classById(row.dataset.class).color;
+    for (const seg of row.querySelectorAll(".bar-seg")) {
+      // The value label rides the tip, so the longest bar leaves room for it.
+      const f = Number(seg.dataset.n) / max;
+      seg.style.width = `calc(${f * 100}% - ${f * BAR_VALUE_ROOM_EM}em)`;
+      seg.style.backgroundColor = color;
+    }
+  }
+}
+
+function showBarTip(row) {
+  const tip = $("#bar-tip");
+  if (tip.dataset.class === row.dataset.class && !tip.classList.contains("hidden")) return;
+  const o = classOverview(members, game.classes).find((c) => c.cls.id === row.dataset.class);
+  tip.dataset.class = o.cls.id;
+  tip.innerHTML = `<b>${esc(o.cls.name)}</b>${o.specs
+    .map(
+      ({ spec, mains, backups }) =>
+        `<span class="tip-row"><span>${esc(spec.name)}</span><span>${mains.length}${backups.length ? `<span class="muted"> +${backups.length}</span>` : ""}</span></span>`,
+    )
+    .join("")}`;
+  tip.classList.remove("hidden");
+  const fig = row.closest("figure").getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  tip.style.top = `${r.bottom - fig.top + 4}px`;
+}
+
 function renderClassOverview() {
+  const overview = classOverview(members, game.classes);
+  renderClassBars(overview);
   const grid = $("#class-grid");
-  grid.innerHTML = classOverview(members, game.classes)
+  grid.innerHTML = overview
     .map(
       ({ cls, mainCount, backupCount, specs }) => `
     <article class="class-card">
@@ -594,6 +645,14 @@ $("#roster").addEventListener("click", (e) => {
   if (btn) openArmory(btn.dataset.name);
 });
 window.addEventListener("hashchange", applyTab);
+const bars = $("#class-bars");
+bars.addEventListener("mouseover", (e) => {
+  const row = e.target.closest(".bar-row");
+  if (row) showBarTip(row);
+});
+bars.addEventListener("mouseleave", hideBarTip);
+bars.addEventListener("focusin", (e) => showBarTip(e.target.closest(".bar-row")));
+bars.addEventListener("focusout", hideBarTip);
 
 $("#import-btn").addEventListener("click", openImport);
 $("#import-close").addEventListener("click", () => $("#import").close());

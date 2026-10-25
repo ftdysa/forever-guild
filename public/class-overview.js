@@ -13,3 +13,8 @@ export function classOverview(members, classes) {
     };
   });
 }
+
+// Most-played classes first for the bar chart; Array#sort is stable, so ties keep class order.
+export function byCoverage(overview) {
+  return [...overview].sort((a, b) => b.mainCount - a.mainCount || b.backupCount - a.backupCount);
+}
