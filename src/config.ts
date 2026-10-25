@@ -11,6 +11,8 @@ export interface Config {
   clientIpHeader?: string;
   // Blizzard armory integration; undefined when not configured.
   blizzard?: BlizzardConfig;
+  // Discord join announcements; undefined when not configured.
+  discord?: DiscordConfig;
 }
 
 export interface BlizzardConfig {
@@ -21,6 +23,12 @@ export interface BlizzardConfig {
   namespace: string;
   realm: string;
   guild: string;
+}
+
+export interface DiscordConfig {
+  // Secret: never log it or echo it in errors.
+  webhookUrl: string;
+  siteUrl?: string;
 }
 
 const BLIZZARD_REGIONS = ["us", "eu", "kr", "tw"];
@@ -55,6 +63,19 @@ function loadBlizzardConfig(env: NodeJS.ProcessEnv): BlizzardConfig | undefined 
   };
 }
 
+const DISCORD_WEBHOOK_RE = /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+
+function loadDiscordConfig(env: NodeJS.ProcessEnv): DiscordConfig | undefined {
+  const siteUrl = env.SITE_URL || undefined;
+  if (siteUrl && !/^https?:\/\/\S+$/.test(siteUrl)) throw new Error("SITE_URL must be an http(s) URL");
+  const webhookUrl = env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return undefined;
+  if (!DISCORD_WEBHOOK_RE.test(webhookUrl)) {
+    throw new Error("DISCORD_WEBHOOK_URL must be a Discord webhook URL");
+  }
+  return { webhookUrl, siteUrl };
+}
+
 const MIN_PASSPHRASE_LENGTH = 16;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -84,5 +105,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: env.TRUST_PROXY === "true",
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || undefined,
     blizzard: loadBlizzardConfig(env),
+    discord: loadDiscordConfig(env),
   };
 }

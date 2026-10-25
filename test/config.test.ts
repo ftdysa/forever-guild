@@ -60,3 +60,32 @@ test("blizzard config rejects partial setup, bad region/namespace, and non-slug 
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_REALM: "Doom Howl" }), /slugs/);
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_GUILD: "../x" }), /slugs/);
 });
+
+const BASE = { GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32) };
+const HOOK = "https://discord.com/api/webhooks/123456/abc-DEF_789";
+
+test("discord is off without a webhook", () => {
+  assert.equal(loadConfig(BASE).discord, undefined);
+  assert.equal(loadConfig({ ...BASE, SITE_URL: "https://example.test" }).discord, undefined);
+});
+
+test("loads the discord webhook and site url", () => {
+  assert.deepEqual(loadConfig({ ...BASE, DISCORD_WEBHOOK_URL: HOOK }).discord, { webhookUrl: HOOK, siteUrl: undefined });
+  const legacy = "https://discordapp.com/api/webhooks/1/x";
+  assert.equal(loadConfig({ ...BASE, DISCORD_WEBHOOK_URL: legacy }).discord?.webhookUrl, legacy);
+  const c = loadConfig({ ...BASE, DISCORD_WEBHOOK_URL: HOOK, SITE_URL: "https://example.test" });
+  assert.equal(c.discord?.siteUrl, "https://example.test");
+});
+
+test("rejects non-discord webhook urls without echoing them", () => {
+  for (const bad of ["http://discord.com/api/webhooks/1/x", "https://evil.test/api/webhooks/1/x", "https://discord.com/api/webhooks/"]) {
+    assert.throws(
+      () => loadConfig({ ...BASE, DISCORD_WEBHOOK_URL: bad }),
+      (err: Error) => /DISCORD_WEBHOOK_URL must be a Discord webhook URL/.test(err.message) && !err.message.includes(bad),
+    );
+  }
+});
+
+test("rejects a bad SITE_URL", () => {
+  assert.throws(() => loadConfig({ ...BASE, DISCORD_WEBHOOK_URL: HOOK, SITE_URL: "example.test" }), /SITE_URL must be an http\(s\) URL/);
+});
