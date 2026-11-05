@@ -61,6 +61,21 @@ test("blizzard config rejects partial setup, bad region/namespace, and non-slug 
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_GUILD: "../x" }), /slugs/);
 });
 
+test("forever needs no realm and rejects one", () => {
+  const env = { ...BASE, BLIZZARD_NAMESPACE: "forever" };
+  const fz = { ...BZ, BLIZZARD_REALM: "", BLIZZARD_GUILD: "old-school" };
+  assert.deepEqual(loadConfig({ ...env, ...fz }).blizzard, {
+    clientId: "id",
+    clientSecret: "secret",
+    region: "us",
+    namespace: "forever",
+    realm: undefined,
+    guild: "old-school",
+  });
+  assert.throws(() => loadConfig({ ...env, BLIZZARD_CLIENT_ID: "id" }), /also set: BLIZZARD_CLIENT_SECRET, BLIZZARD_GUILD$/);
+  assert.throws(() => loadConfig({ ...env, ...fz, BLIZZARD_REALM: "doomhowl" }), /BLIZZARD_REALM must be empty/);
+});
+
 const BASE = { GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32) };
 const HOOK = "https://discord.com/api/webhooks/123456/abc-DEF_789";
 

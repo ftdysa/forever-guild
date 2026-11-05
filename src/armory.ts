@@ -16,7 +16,8 @@ const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
   11: "druid",
 };
 
-const ROSTER_TTL_MS = 6 * 60 * 60 * 1000;
+// Forever's guild roster maps names to name-surname slugs; refreshed often enough that new members show up quickly.
+const ROSTER_TTL_MS = 15 * 60 * 1000;
 // Cached characters are served as-is for this long, then revalidated with one conditional
 // request (see character()). There is no hard expiry: unchanged characters stay cached.
 const CHARACTER_FRESH_MS = 15 * 60 * 1000;
@@ -25,13 +26,6 @@ const ICON_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // Blizzard's search API caps a page at 100 results; one OR-query fetches that many icons.
 const ICON_BATCH = 100;
 const AVATAR_HOST = "render.worldofwarcraft.com";
-
-export interface RosterEntry {
-  name: string;
-  level: number;
-  classId: string | null;
-  rank: number;
-}
 
 export interface GearItem {
   // Blizzard slot type, e.g. HEAD, FINGER_1, MAIN_HAND
@@ -79,6 +73,8 @@ export interface ItemTooltip {
 
 export interface CharacterInfo {
   name: string;
+  // Forever only.
+  surname: string | null;
   level: number;
   classId: string | null;
   race: string | null;
@@ -99,10 +95,11 @@ export interface CharacterInfo {
 
 // --- Raw Blizzard shapes (only the fields we read) ---
 interface RawRoster {
-  members: { character: { name: string; level: number; playable_class: { id: number } }; rank: number }[];
+  members: { character: { name: string; slug?: string } }[];
 }
 interface RawSummary {
   name: string;
+  surname?: string;
   faction?: { type?: string };
   level: number;
   character_class?: { id: number };
@@ -266,6 +263,8 @@ interface CachedCharacter {
 
 export class ArmoryService {
   private keyPrefix: string;
+  // Loads in progress by cache key, so concurrent misses share one Blizzard fetch.
+  private inFlight = new Map<string, Promise<unknown>>();
 
   constructor(
     private client: BlizzardClient,
@@ -273,26 +272,30 @@ export class ArmoryService {
     private cfg: Pick<BlizzardConfig, "region" | "namespace" | "realm" | "guild">,
     private now: () => number = Date.now,
   ) {
-    // Keys carry the realm and guild, so pointing at a new guild never serves the old one's data.
-    this.keyPrefix = `${cfg.region}:${cfg.namespace}:${cfg.realm}`;
+    this.keyPrefix = `${cfg.region}:${cfg.namespace}`;
   }
 
   get settings() {
     return this.cfg;
   }
 
-  roster(): Promise<RosterEntry[]> {
-    return this.cached(`${this.keyPrefix}:guild:${this.cfg.guild}`, ROSTER_TTL_MS, async () => {
-      const raw = await this.client.profile<RawRoster>(`/data/wow/guild/${this.cfg.realm}/${this.cfg.guild}/roster`);
+  // Profile API path for a character, or null when Forever's guild roster doesn't know the name.
+  // Forever has no realms: characters are addressed by a name-surname slug only the roster gives us,
+  // so lookups are limited to guild members.
+  private async characterPath(lower: string): Promise<string | null> {
+    if (this.cfg.realm) return `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
+    const slug = (await this.guildSlugs())[lower];
+    return slug ? `/profile/wow/character/${encodeURIComponent(slug)}` : null;
+  }
+
+  // Lowercase name → slug for every guild member. Keyed by guild, so a new guild never sees old data.
+  private guildSlugs(): Promise<Record<string, string>> {
+    return this.cached(`${this.keyPrefix}:guild:${this.cfg.guild}:slugs`, ROSTER_TTL_MS, async () => {
+      const raw = await this.client.profile<RawRoster>(`/data/wow/guild/${this.cfg.guild}/roster`);
       if (!raw) throw new BlizzardError("guild not found");
-      return raw.members
-        .map((m) => ({
-          name: m.character.name,
-          level: m.character.level,
-          classId: CLASS_BY_BLIZZARD_ID[m.character.playable_class.id] ?? null,
-          rank: m.rank,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const slugs: Record<string, string> = {};
+      for (const { character } of raw.members) if (character.slug) slugs[character.name.toLowerCase()] = character.slug;
+      return slugs;
     });
   }
 
@@ -303,13 +306,13 @@ export class ArmoryService {
   // decides: 304 keeps the cached entry (1 call instead of 5), 200 means they played and the
   // rest is refetched. If Blizzard is down, the cached entry is served.
   async character(name: string): Promise<CharacterInfo | null> {
-    const lower = name.toLowerCase();
-    // v3: entries carry Last-Modified for revalidation.
-    const key = `${this.keyPrefix}:character:v3:${lower}`;
+    const base = await this.characterPath(name.toLowerCase());
+    if (!base) return null;
+    // Keyed by API path (realm or slug included). v4: path-based keys; entries carry Last-Modified.
+    const key = `${this.keyPrefix}:character:v4:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 
-    const base = `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
     try {
       const res = await this.client.profileIfModified<RawSummary>(base, hit?.value.lastModified ?? null);
       if (!res.modified && hit) {
@@ -344,6 +347,7 @@ export class ArmoryService {
     const icons = await this.itemIcons(items.map((i) => i.item.id));
     return {
       name: summary.name,
+      surname: summary.surname ?? null,
       level: summary.level,
       classId,
       race: summary.race?.name ?? null,
@@ -417,10 +421,18 @@ export class ArmoryService {
   private async cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
     const hit = this.cache.get(key);
     if (hit && this.now() - hit.fetchedAt < ttlMs) return hit.value as T;
+    let pending = this.inFlight.get(key) as Promise<T> | undefined;
+    if (!pending) {
+      pending = load()
+        .then((value) => {
+          this.cache.set(key, value, this.now());
+          return value;
+        })
+        .finally(() => this.inFlight.delete(key));
+      this.inFlight.set(key, pending);
+    }
     try {
-      const value = await load();
-      this.cache.set(key, value, this.now());
-      return value;
+      return await pending;
     } catch (err) {
       if (hit && err instanceof BlizzardError) return hit.value as T;
       throw err;

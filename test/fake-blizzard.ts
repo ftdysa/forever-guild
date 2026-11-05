@@ -39,16 +39,9 @@ export function fakeBlizzard(routes: Record<string, unknown | { status: number }
 
 export const BASE = "/profile/wow/character/doomhowl";
 
-// A level-60 Frost mage with full data, plus a guild roster that includes her.
-export function guildFixture() {
+// A level-60 Frost mage with full data.
+export function characterFixture() {
   return {
-    "/data/wow/guild/doomhowl/fatal/roster": {
-      members: [
-        { character: { name: "Zuljin", level: 42, playable_class: { id: 3 } }, rank: 4 },
-        { character: { name: "Jaina", level: 60, playable_class: { id: 8 } }, rank: 1 },
-        { character: { name: "Oddball", level: 10, playable_class: { id: 6 } }, rank: 7 },
-      ],
-    },
     [`${BASE}/jaina`]: {
       name: "Jaina",
       level: 60,

@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { sessionCookieName } from "../src/routes/auth.js";
-import { fakeBlizzard, guildFixture } from "./fake-blizzard.js";
+import { fakeBlizzard, characterFixture } from "./fake-blizzard.js";
 
 const PASS = "for-the-horde-forever";
 const base = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
 const blizzard = { clientId: "id", clientSecret: "shh", region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" };
 
-const fake = fakeBlizzard(guildFixture());
+const fake = fakeBlizzard(characterFixture());
 let app: FastifyInstance;
 let cookies: Record<string, string>;
 
@@ -27,7 +27,7 @@ before(async () => {
 after(async () => app.close());
 
 test("armory routes require a session", async () => {
-  for (const url of ["/api/armory/status", "/api/armory/roster", "/api/armory/character/jaina"]) {
+  for (const url of ["/api/armory/status", "/api/armory/character/jaina"]) {
     const res = await app.inject({ method: "GET", url });
     assert.equal(res.statusCode, 401, url);
   }
@@ -44,20 +44,6 @@ test("status reports the configured guild without secrets", async () => {
     wowheadItemUrl: "https://www.wowhead.com/classic/item=",
   });
   assert.doesNotMatch(res.body, /shh/);
-});
-
-test("roster flags members already in the ledger", async () => {
-  const created = await app.inject({
-    method: "POST",
-    url: "/api/members",
-    cookies,
-    payload: { characterName: "jaina", mainClass: "mage", mainSpec: "frost", primaryProfessions: ["tailoring", "enchanting"] },
-  });
-  assert.equal(created.statusCode, 201);
-  const res = await app.inject({ method: "GET", url: "/api/armory/roster", cookies });
-  assert.equal(res.statusCode, 200);
-  const byName = Object.fromEntries(res.json().map((r: { name: string; onRoster: boolean }) => [r.name, r.onRoster]));
-  assert.deepEqual(byName, { Jaina: true, Oddball: false, Zuljin: false });
 });
 
 test("character lookup: found, not found, and invalid names never reach Blizzard", async () => {
@@ -88,12 +74,21 @@ test("upstream failure is 502 with a generic error", async () => {
   }
 });
 
+test("forever status has no realm and links Forever items on Wowhead", async () => {
+  const forever = buildApp({ ...base, blizzard: { ...blizzard, namespace: "forever", realm: undefined, guild: "old-school" } }, { blizzardFetch: fake.fetchFn });
+  await forever.ready();
+  const res = await forever.inject({ method: "GET", url: "/api/armory/status", cookies: await login(forever) });
+  assert.equal(res.json().realm, null);
+  assert.equal(res.json().wowheadItemUrl, "https://www.wowhead.com/forever/item=");
+  await forever.close();
+});
+
 test("without Blizzard config the armory is disabled", async () => {
   const plain = buildApp(base);
   await plain.ready();
   const c = await login(plain);
   assert.deepEqual((await plain.inject({ method: "GET", url: "/api/armory/status", cookies: c })).json(), { enabled: false });
-  assert.equal((await plain.inject({ method: "GET", url: "/api/armory/roster", cookies: c })).statusCode, 404);
+  assert.equal((await plain.inject({ method: "GET", url: "/api/armory/character/jaina", cookies: c })).statusCode, 404);
   await plain.close();
 });
 

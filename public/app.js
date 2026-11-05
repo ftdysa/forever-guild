@@ -13,7 +13,6 @@ let game = null; // { classes, professions, sweatFactors, levelingPrefs }
 let members = [];
 let pendingDeleteId = null;
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
-let guildRoster = null; // cached /api/armory/roster for the import dialog
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -247,32 +246,29 @@ function applyTab() {
 }
 
 // ---------- Drawer ----------
-// `member` is the record being edited (null when adding); `draft` supplies field values,
-// e.g. a partial member pre-filled from the armory.
-function openDrawer(member, draft = member, note = "") {
+// `member` is the record being edited (null when adding).
+function openDrawer(member) {
   $("#drawer-title").textContent = member ? "Edit Member" : "Add Member";
-  $("#drawer-note").textContent = note;
-  $("#drawer-note").classList.toggle("hidden", !note);
   $("#form-errors").classList.add("hidden");
   $("#form-errors").innerHTML = "";
   $("#f-id").value = member?.id ?? "";
-  $("#f-name").value = draft?.characterName ?? "";
-  $("#f-main-class").value = classById(draft?.mainClass) ? draft.mainClass : game.classes[0].id;
+  $("#f-name").value = member?.characterName ?? "";
+  $("#f-main-class").value = classById(member?.mainClass) ? member.mainClass : game.classes[0].id;
   fillSpecs($("#f-main-class"), $("#f-main-spec"));
-  $("#f-main-spec").value = draft?.mainSpec ?? "";
+  $("#f-main-spec").value = member?.mainSpec ?? "";
   if (!$("#f-main-spec").value) $("#f-main-spec").selectedIndex = 0;
-  $("#f-backup-class").value = draft?.backupClass ?? "";
+  $("#f-backup-class").value = member?.backupClass ?? "";
   fillSpecs($("#f-backup-class"), $("#f-backup-spec"), { placeholder: "—" });
-  $("#f-backup-spec").value = draft?.backupSpec ?? "";
-  const prim1 = draft?.primaryProfessions?.[0] ?? primaries()[0].id;
+  $("#f-backup-spec").value = member?.backupSpec ?? "";
+  const prim1 = member?.primaryProfessions?.[0] ?? primaries()[0].id;
   $("#f-prim-1").value = prim1;
-  $("#f-prim-2").value = draft?.primaryProfessions?.[1] ?? primaries().find((p) => p.id !== prim1).id;
+  $("#f-prim-2").value = member?.primaryProfessions?.[1] ?? primaries().find((p) => p.id !== prim1).id;
   for (const cb of document.querySelectorAll("#f-secondaries input")) {
-    cb.checked = draft?.secondaryProfessions?.includes(cb.value) ?? false;
+    cb.checked = member?.secondaryProfessions?.includes(cb.value) ?? false;
   }
-  $("#f-sweat").value = draft?.sweatFactor ?? "";
-  $("#f-leveling").value = draft?.levelingPref ?? "";
-  $("#f-notes").value = draft?.notes ?? "";
+  $("#f-sweat").value = member?.sweatFactor ?? "";
+  $("#f-leveling").value = member?.levelingPref ?? "";
+  $("#f-notes").value = member?.notes ?? "";
   const d = $("#drawer");
   d.classList.remove("hidden");
   d.setAttribute("aria-hidden", "false");
@@ -321,7 +317,6 @@ async function loadMembers() {
     return false;
   }
   members = r.data ?? [];
-  guildRoster = null; // membership changed or reloaded: refetch so "On roster" flags stay current
   $("#empty-msg").textContent = "No members yet. Be the first to sign the ledger.";
   renderRoster();
   showRoster();
@@ -334,15 +329,18 @@ async function initArmory() {
   const r = await api("GET", "/api/armory/status");
   armory = r.ok && r.data?.enabled ? r.data : null;
   if (!armory) return;
-  $("#import-btn").classList.remove("hidden");
-  $("#import-title").textContent = `Import from ${titleCase(armory.guild)} — ${titleCase(armory.realm)}`;
   renderRoster();
 }
 
 const fetchCharacter = (name) => api("GET", `/api/armory/character/${encodeURIComponent(name)}`);
 
 function armoryError(r, what) {
-  if (r.status === 404) return `${what} isn't on the armory for ${titleCase(armory.realm)}.`;
+  if (r.status === 404) {
+    // Forever has no realms; lookups only cover the guild's members.
+    return armory.realm
+      ? `${what} isn't on the armory for ${titleCase(armory.realm)}.`
+      : `${what} isn't in ${titleCase(armory.guild)} on the armory.`;
+  }
   if (r.status === 429) return "Slow down — too many armory lookups. Try again in a minute.";
   return "The armory is unreachable right now. Try again shortly.";
 }
@@ -466,14 +464,14 @@ async function openArmory(name) {
   const c = r.data;
   const cls = classById(c.classId);
   $("#armory-status").textContent = "";
-  $("#armory-name").textContent = c.name;
+  $("#armory-name").textContent = c.surname ? `${c.name} ${c.surname}` : c.name;
   if (cls) $("#armory-name").style.color = cls.color;
   if (c.faction) $("#armory-crest").className = `crest crest-${c.faction}`;
   $("#armory-ilvl").textContent = c.itemLevel ? `${c.itemLevel} ILVL` : "";
   $("#armory-sub").textContent = [
     `${c.level} ${c.race ?? ""} ${cls?.name ?? ""}`.replace(/\s+/g, " ").trim(),
     c.guild && `<${c.guild}>`,
-    titleCase(armory.realm),
+    armory.realm && titleCase(armory.realm),
     c.lastLogin && `· last seen ${new Date(c.lastLogin).toLocaleDateString()}`,
   ]
     .filter(Boolean)
@@ -494,82 +492,6 @@ async function openArmory(name) {
   if (c.renderUrl || c.avatarUrl) render.src = c.renderUrl ?? c.avatarUrl;
   $("#armory-doll").classList.remove("hidden");
   renderStats(c.stats);
-}
-
-async function openImport() {
-  $("#import").showModal();
-  if (!guildRoster) {
-    $("#import-status").textContent = "Fetching the guild roster…";
-    $("#import-body").innerHTML = "";
-    const r = await api("GET", "/api/armory/roster");
-    if (r.status === 401) {
-      $("#import").close();
-      return showGate("Your session expired. Enter the passphrase again.");
-    }
-    if (!r.ok) {
-      $("#import-status").textContent = armoryError(r, "The guild");
-      return;
-    }
-    guildRoster = r.data;
-  }
-  renderImport();
-  $("#import-search").focus();
-}
-
-function renderImport() {
-  if (!guildRoster) return;
-  const q = $("#import-search").value.trim().toLowerCase();
-  const min = Number($("#import-min").value) || 1;
-  const rows = guildRoster.filter((m) => m.level >= min && m.name.toLowerCase().includes(q));
-  $("#import-status").textContent = `Showing ${rows.length} of ${guildRoster.length} guild members.`;
-  const body = $("#import-body");
-  body.innerHTML = rows
-    .map(
-      (m) => `<tr>
-        <td data-label="Character"><span class="name">${esc(m.name)}</span></td>
-        <td data-label="Level">${m.level}</td>
-        <td data-label="Class">${m.classId ? `<span class="cls" data-class="${esc(m.classId)}">${esc(classById(m.classId)?.name ?? m.classId)}</span>` : DASH}</td>
-        <td class="actions">${
-          m.onRoster
-            ? '<span class="muted">On roster</span>'
-            : `<button class="btn btn-small" data-import="${esc(m.name)}">Add</button>`
-        }</td>
-      </tr>`,
-    )
-    .join("");
-  paintClasses(body);
-}
-
-async function importMember(btn) {
-  const entry = guildRoster.find((m) => m.name === btn.dataset.import);
-  if (!entry) return;
-  btn.disabled = true;
-  btn.textContent = "…";
-  const r = await fetchCharacter(entry.name);
-  if (r.status === 401) {
-    $("#import").close();
-    return showGate("Your session expired. Enter the passphrase again.");
-  }
-  const c = r.ok ? r.data : null;
-  const notes = [];
-  if (!c) notes.push(`Couldn't read ${entry.name}'s armory, so only name and class are filled in.`);
-  else if (c.spec) {
-    const pts = Object.entries(c.spec.points).map(([id, n]) => `${specOf(c.classId, id)?.name ?? id} ${n}`).join(" · ");
-    notes.push(`Spec guessed from talents (${pts}).`);
-  } else notes.push("Couldn't guess a spec from talents — pick one below.");
-  if (c && !c.professions) notes.push("Professions aren't available from this realm's armory — pick them below.");
-  $("#import").close();
-  openDrawer(
-    null,
-    {
-      characterName: entry.name,
-      mainClass: c?.classId ?? entry.classId,
-      mainSpec: c?.spec?.specId,
-      primaryProfessions: c?.professions?.primary,
-      secondaryProfessions: c?.professions?.secondary,
-    },
-    `Pre-filled from the armory. ${notes.join(" ")}`,
-  );
 }
 
 function initForm() {
@@ -654,14 +576,6 @@ bars.addEventListener("mouseleave", hideBarTip);
 bars.addEventListener("focusin", (e) => showBarTip(e.target.closest(".bar-row")));
 bars.addEventListener("focusout", hideBarTip);
 
-$("#import-btn").addEventListener("click", openImport);
-$("#import-close").addEventListener("click", () => $("#import").close());
-$("#import-search").addEventListener("input", renderImport);
-$("#import-min").addEventListener("input", renderImport);
-$("#import-body").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-import]");
-  if (btn) importMember(btn);
-});
 $("#armory-close").addEventListener("click", () => $("#armory").close());
 $("#armory").addEventListener("close", hideTip);
 const doll = $("#armory-doll");

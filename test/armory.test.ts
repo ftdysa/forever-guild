@@ -4,16 +4,14 @@ import Database from "better-sqlite3";
 import { ArmoryService, inferSpec, mapProfessions, mapStats, type RawItem } from "../src/armory.js";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache } from "../src/db.js";
-import { BASE, ICONS, fakeBlizzard, guildFixture, iconSearch } from "./fake-blizzard.js";
+import { BASE, ICONS, fakeBlizzard, characterFixture, iconSearch } from "./fake-blizzard.js";
 
 const cfg = { region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" };
 const creds = { clientId: "id", clientSecret: "shh", region: "us", namespace: "classic1x" };
 
-function setup(routes: Record<string, unknown> = guildFixture(), config = cfg) {
+function setup(routes: Record<string, unknown> = characterFixture(), config: ConstructorParameters<typeof ArmoryService>[2] = cfg, cache = new ArmoryCache(new Database(":memory:"))) {
   let t = 1_000_000;
   const fake = fakeBlizzard(routes);
-  const db = new Database(":memory:");
-  const cache = new ArmoryCache(db);
   const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn);
   const armory = new ArmoryService(client, cache, config, () => t);
   return { fake, armory, cache, advance: (ms: number) => (t += ms) };
@@ -48,15 +46,6 @@ test("mapProfessions maps known names and drops the rest", () => {
   };
   assert.deepEqual(mapProfessions(raw), { primary: ["herbalism", "alchemy"], secondary: ["cooking"] });
   assert.equal(mapProfessions(null), null);
-});
-
-test("roster maps classes, sorts by name, and leaves unknown classes null", async () => {
-  const { armory } = setup();
-  assert.deepEqual(await armory.roster(), [
-    { name: "Jaina", level: 60, classId: "mage", rank: 1 },
-    { name: "Oddball", level: 10, classId: null, rank: 7 },
-    { name: "Zuljin", level: 42, classId: "hunter", rank: 4 },
-  ]);
 });
 
 test("character maps profile, gear, spec, avatar; professions null when unsupported", async () => {
@@ -141,7 +130,7 @@ test("cached icons (including items without one) are not searched again", async 
 });
 
 test("icon searches are batched 100 ids at a time", async () => {
-  const routes = guildFixture();
+  const routes = characterFixture();
   const equipment = routes[`${BASE}/jaina/equipment`] as { equipped_items: RawItem[] };
   const shirt = equipment.equipped_items[2];
   equipment.equipped_items = Array.from({ length: 150 }, (_, n) => ({ ...shirt, item: { id: 1000 + n } }));
@@ -158,7 +147,7 @@ test("icon searches are batched 100 ids at a time", async () => {
 });
 
 test("icon search failures degrade to null and fill in once Blizzard recovers", async () => {
-  const routes: Record<string, unknown> = guildFixture();
+  const routes: Record<string, unknown> = characterFixture();
   routes["/data/wow/search/media"] = { status: 503 };
   const { armory, fake, advance } = setup(routes);
   const c = await armory.character("jaina");
@@ -187,14 +176,14 @@ test("mapStats picks the best crit and tolerates missing data", () => {
 });
 
 test("avatar from any other host is dropped", async () => {
-  const routes = guildFixture();
+  const routes = characterFixture();
   routes[`${BASE}/jaina/character-media`] = { assets: [{ key: "avatar", value: "https://evil.example/x.jpg" }] };
   const { armory } = setup(routes);
   assert.equal((await armory.character("jaina"))?.avatarUrl, null);
 });
 
 test("character professions are mapped where the endpoint exists (not Classic Era)", async () => {
-  const routes = guildFixture();
+  const routes = characterFixture();
   routes[`${BASE}/jaina/professions`] = { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] };
   const { armory } = setup(routes, { ...cfg, namespace: "retail" });
   assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [] });
@@ -231,7 +220,7 @@ test("after 15 minutes an unchanged character costs one conditional call", async
 });
 
 test("a character who played since is refetched in full", async () => {
-  const routes = guildFixture();
+  const routes = characterFixture();
   const { armory, fake, advance } = setup(routes);
   await armory.character("jaina");
   (routes[`${BASE}/jaina`] as { equipped_item_level: number }).equipped_item_level = 71;
@@ -263,20 +252,68 @@ test("a cached character is served when revalidation fails", async () => {
   assert.deepEqual(await armory.character("jaina"), first);
 });
 
-test("stale cache is served when Blizzard is down; errors surface without a cache", async () => {
-  const { armory, fake, advance } = setup();
-  await armory.roster();
-  advance(7 * 60 * 60 * 1000);
+test("a cached character is served when Blizzard is down; errors surface without a cache", async () => {
+  const { armory, fake } = setup();
   fake.state.apiDown = true;
-  assert.equal((await armory.roster()).length, 3);
   await assert.rejects(armory.character("jaina"), /unreachable/);
 });
 
-test("cache keys include realm and guild so a new guild never sees old data", async () => {
-  const { cache } = setup();
-  const fake = fakeBlizzard(guildFixture());
-  const a = new ArmoryService(new BlizzardClient(creds, fake.fetchFn), cache, cfg);
-  await a.roster();
-  const b = new ArmoryService(new BlizzardClient(creds, fake.fetchFn), cache, { ...cfg, guild: "other" });
-  await assert.rejects(b.roster(), /guild not found/);
+// Forever: no realms. Characters are found through the guild roster's name-surname slugs.
+const FOREVER = "/profile/wow/character/jaina-proudmoore";
+function foreverFixture() {
+  const routes: Record<string, unknown> = {
+    "/data/wow/guild/old-school/roster": {
+      members: [
+        { character: { name: "Jaina", slug: "jaina-proudmoore" } },
+        { character: { name: "Thrall", slug: "thrall-durotan" } },
+      ],
+    },
+    [FOREVER]: { name: "Jaina", surname: "Proudmoore", level: 12, character_class: { id: 8 }, last_login_timestamp: 1 },
+    [`${FOREVER}/professions`]: { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] },
+    "/data/wow/search/media": iconSearch,
+  };
+  return routes;
+}
+const foreverCfg = { region: "us", namespace: "forever", guild: "old-school" };
+
+test("forever resolves characters through the guild roster's slugs", async () => {
+  const { armory, fake } = setup(foreverFixture(), foreverCfg);
+  const c = await armory.character("JAINA");
+  assert.equal(c?.name, "Jaina");
+  assert.equal(c?.surname, "Proudmoore");
+  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [] });
+  assert.ok(fake.calls.includes(FOREVER));
+});
+
+test("forever: names outside the guild are not found and cost no profile call", async () => {
+  const { armory, fake } = setup(foreverFixture(), foreverCfg);
+  assert.equal(await armory.character("nobody"), null);
+  assert.deepEqual(fake.calls.filter((c) => c.startsWith("/profile")), []);
+});
+
+test("forever: the roster is cached for 15 minutes, and served stale when Blizzard is down", async () => {
+  const { armory, fake, advance } = setup(foreverFixture(), foreverCfg);
+  await armory.character("nobody");
+  await armory.character("nobody");
+  const rosterCalls = () => fake.calls.filter((c) => c.endsWith("/roster")).length;
+  assert.equal(rosterCalls(), 1);
+  advance(16 * 60 * 1000);
+  await armory.character("nobody");
+  assert.equal(rosterCalls(), 2);
+  advance(16 * 60 * 1000);
+  fake.state.apiDown = true;
+  assert.equal(await armory.character("nobody"), null);
+});
+
+test("forever: concurrent lookups share one roster fetch", async () => {
+  const { armory, fake } = setup(foreverFixture(), foreverCfg);
+  await Promise.all([armory.character("nobody"), armory.character("thrall"), armory.character("x")]);
+  assert.equal(fake.calls.filter((c) => c.endsWith("/roster")).length, 1);
+});
+
+test("forever: an unknown guild surfaces as an error, and a new guild never sees old data", async () => {
+  const { armory, cache } = setup(foreverFixture(), foreverCfg);
+  await armory.character("jaina");
+  const { armory: other } = setup(foreverFixture(), { ...foreverCfg, guild: "other" }, cache);
+  await assert.rejects(other.character("jaina"), /guild not found/);
 });
