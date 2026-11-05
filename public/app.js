@@ -109,14 +109,17 @@ function renderCoverage() {
     .join("");
 }
 
-// A character name, linked to the armory when it is enabled. Clicks are handled on #roster.
-function characterName(name, cls) {
+const fullName = (m) => (m.surname ? `${m.characterName} ${m.surname}` : m.characterName);
+
+// A member's full name, linked to the armory when it is enabled. Clicks are handled on #roster;
+// lookups go by first name, which is all the armory route accepts.
+function characterName(m, cls) {
   return armory
-    ? `<button class="${cls} link" data-action="armory" data-name="${esc(name)}" title="View armory">${esc(name)}</button>`
-    : `<span class="${cls}">${esc(name)}</span>`;
+    ? `<button class="${cls} link" data-action="armory" data-name="${esc(m.characterName)}" title="View armory">${esc(fullName(m))}</button>`
+    : `<span class="${cls}">${esc(fullName(m))}</span>`;
 }
 
-const memberList = (names) => names.map((n) => characterName(n, "member")).join(", ");
+const memberList = (list) => list.map((m) => characterName(m, "member")).join(", ");
 
 // Horizontal bars, most-played first: a class-coloured main segment plus a faint backup segment.
 // Widths and colours go through the DOM, not style="", to keep the CSP free of 'unsafe-inline'.
@@ -200,7 +203,7 @@ function renderRoster() {
     .map(
       (m) => `
     <tr data-id="${m.id}">
-      <td data-label="Character">${characterName(m.characterName, "name")}</td>
+      <td data-label="Character">${characterName(m, "name")}</td>
       <td data-label="Level">${m.level}</td>
       <td data-label="Main">${classCell(m.mainClass, m.mainSpec)}</td>
       <td data-label="Backup">${classCell(m.backupClass, m.backupSpec)}</td>
@@ -249,7 +252,7 @@ function applyTab() {
 // Name, class, level and professions come from the guild roster; only the rest is editable.
 function openDrawer(member) {
   const cls = classById(member.mainClass);
-  $("#drawer-title").textContent = member.characterName;
+  $("#drawer-title").textContent = fullName(member);
   if (cls) $("#drawer-title").style.color = cls.color;
   const profs = [...member.primaryProfessions, ...member.secondaryProfessions].map(profName).join(", ");
   $("#drawer-synced").textContent = `Level ${member.level} ${cls?.name ?? member.mainClass}${profs ? ` · ${profs}` : ""} — from the armory`;

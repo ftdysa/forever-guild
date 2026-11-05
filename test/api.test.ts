@@ -83,7 +83,7 @@ test("members routes require session", async () => {
 });
 
 test("members can be listed and their details edited, but not created or deleted", async () => {
-  const [thrall] = app.store.syncRoster([{ name: "Thrall", classId: "shaman", level: 14, rank: 0 }]);
+  const [thrall] = app.store.syncRoster([{ name: "Thrall", surname: "Durotan", slug: "thrall-durotan", classId: "shaman", level: 14, rank: 0 }]);
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
   assert.equal(list.statusCode, 200);
   assert.deepEqual(list.json().map((m: { characterName: string }) => m.characterName), ["Thrall"]);

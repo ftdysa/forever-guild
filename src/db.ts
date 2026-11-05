@@ -9,6 +9,8 @@ import type { MemberDetails } from "./validate.js";
 export interface Member extends MemberDetails {
   id: number;
   characterName: string;
+  // Forever only.
+  surname: string | null;
   mainClass: string;
   level: number;
   guildRank: number;
@@ -24,6 +26,7 @@ export type RosterMember = RosterEntry & { classId: string };
 interface Row {
   id: number;
   character_name: string;
+  surname: string | null;
   main_class: string;
   main_spec: string | null;
   level: number;
@@ -43,6 +46,7 @@ const membersTable = (name: string) => `
 CREATE TABLE IF NOT EXISTS ${name} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   character_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  surname TEXT,
   main_class TEXT NOT NULL,
   main_spec TEXT,
   level INTEGER NOT NULL DEFAULT 0,
@@ -68,6 +72,7 @@ function rowToMember(r: Row): Member {
   return {
     id: r.id,
     characterName: r.character_name,
+    surname: r.surname,
     mainClass: r.main_class,
     mainSpec: r.main_spec,
     level: r.level,
@@ -96,6 +101,9 @@ export class MemberStore {
   constructor(private db: Database.Database) {
     this.migrate();
     this.db.exec(membersTable("members"));
+    // Added after the guild-sync schema; plain ALTER is enough for a nullable column.
+    const cols = (this.db.pragma("table_info(members)") as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("surname")) this.db.exec("ALTER TABLE members ADD COLUMN surname TEXT");
   }
 
   // Tables from the hand-entered roster era have a NOT NULL main_spec and no level or rank.
@@ -129,19 +137,22 @@ export class MemberStore {
     return this.db.transaction(() => {
       const existing = new Map(this.list().map((m) => [m.characterName.toLowerCase(), m]));
       const insert = this.db.prepare(
-        `INSERT INTO members (character_name, main_class, level, guild_rank, created_at, updated_at)
-         VALUES (@name, @classId, @level, @rank, @now, @now)`,
+        `INSERT INTO members (character_name, surname, main_class, level, guild_rank, created_at, updated_at)
+         VALUES (@name, @surname, @classId, @level, @rank, @now, @now)`,
       );
       const update = this.db.prepare(
-        `UPDATE members SET main_class = @classId, level = @level, guild_rank = @rank, updated_at = @now WHERE id = @id`,
+        `UPDATE members SET surname = @surname, main_class = @classId, level = @level, guild_rank = @rank, updated_at = @now
+         WHERE id = @id`,
       );
-      const row = (r: RosterMember) => ({ name: r.name, classId: r.classId, level: r.level, rank: r.rank, now });
+      const row = (r: RosterMember) => ({ name: r.name, surname: r.surname, classId: r.classId, level: r.level, rank: r.rank, now });
       const added: number[] = [];
       for (const r of roster) {
         const m = existing.get(r.name.toLowerCase());
         existing.delete(r.name.toLowerCase());
         if (!m) added.push(Number(insert.run(row(r)).lastInsertRowid));
-        else if (m.mainClass !== r.classId || m.level !== r.level || m.guildRank !== r.rank) update.run({ ...row(r), id: m.id });
+        else if (m.surname !== r.surname || m.mainClass !== r.classId || m.level !== r.level || m.guildRank !== r.rank) {
+          update.run({ ...row(r), id: m.id });
+        }
       }
       const remove = this.db.prepare("DELETE FROM members WHERE id = ?");
       for (const gone of existing.values()) remove.run(gone.id);

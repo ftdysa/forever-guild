@@ -15,8 +15,8 @@ test("lists every class and spec in order, empty when no members", () => {
     assert.equal(c.backupCount, 0);
     assert.deepEqual(c.specs.map((s) => s.spec.id), c.cls.specs.map((s) => s.id));
     for (const s of c.specs) {
-      assert.deepEqual(s.mains, []);
-      assert.deepEqual(s.backups, []);
+      assert.deepEqual(s.mains.map((x) => x.characterName), []);
+      assert.deepEqual(s.backups.map((x) => x.characterName), []);
     }
   }
 });
@@ -33,13 +33,13 @@ test("groups mains and backups by class and spec, keeping member order", () => {
   assert.equal(paladin.mainCount, 2);
   assert.equal(paladin.backupCount, 1);
   const holy = paladin.specs.find((s) => s.spec.id === "holy")!;
-  assert.deepEqual(holy.mains, ["Mildred", "Gerald"]);
-  assert.deepEqual(holy.backups, ["Grumpus"]);
+  assert.deepEqual(holy.mains.map((x) => x.characterName), ["Mildred", "Gerald"]);
+  assert.deepEqual(holy.backups.map((x) => x.characterName), ["Grumpus"]);
 
   const warrior = out.find((c) => c.cls.id === "warrior")!;
   assert.equal(warrior.mainCount, 1);
   assert.equal(warrior.backupCount, 1);
-  assert.deepEqual(warrior.specs.find((s) => s.spec.id === "protection")!.backups, ["Pops"]);
+  assert.deepEqual(warrior.specs.find((s) => s.spec.id === "protection")!.backups.map((x) => x.characterName), ["Pops"]);
 });
 
 test("unknown classes are ignored; an unknown or missing spec still counts for its class", () => {

@@ -96,7 +96,8 @@ export interface CharacterInfo {
 
 export interface RosterEntry {
   name: string;
-  // Forever only: the name-surname slug the Profile API addresses the character by.
+  // Forever only: the surname, and the name-surname slug the Profile API addresses the character by.
+  surname: string | null;
   slug: string | null;
   level: number;
   classId: string | null;
@@ -105,7 +106,7 @@ export interface RosterEntry {
 
 // --- Raw Blizzard shapes (only the fields we read) ---
 interface RawRoster {
-  members: { character: { name: string; slug?: string; level: number; playable_class: { id: number } }; rank: number }[];
+  members: { character: { name: string; surname?: string; slug?: string; level: number; playable_class: { id: number } }; rank: number }[];
 }
 interface RawSummary {
   name: string;
@@ -299,6 +300,7 @@ export class ArmoryService {
       return raw.members
         .map(({ character: c, rank }) => ({
           name: c.name,
+          surname: c.surname ?? null,
           slug: c.slug ?? null,
           level: c.level,
           classId: CLASS_BY_BLIZZARD_ID[c.playable_class.id] ?? null,

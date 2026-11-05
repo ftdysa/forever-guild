@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { ArmoryCache, MemberStore, openDatabase, wipeGuildData, type RosterMember } from "../src/db.js";
 import { SessionStore } from "../src/sessions.js";
 
-const thrall: RosterMember = { name: "Thrall", classId: "shaman", level: 14, rank: 0 };
-const jaina: RosterMember = { name: "Jaina", classId: "mage", level: 12, rank: 3 };
+const thrall: RosterMember = { name: "Thrall", surname: "Durotan", slug: "thrall-durotan", classId: "shaman", level: 14, rank: 0 };
+const jaina: RosterMember = { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", classId: "mage", level: 12, rank: 3 };
 const details = { mainSpec: "frost", backupClass: "priest", backupSpec: "holy", sweatFactor: "world-first", levelingPref: "duo", notes: "portals" };
 
 let db: Database.Database;
@@ -30,6 +30,7 @@ test("syncRoster adds newcomers with empty details, sorted by name", () => {
     {
       id: 0,
       characterName: "Jaina",
+      surname: "Proudmoore",
       mainClass: "mage",
       mainSpec: null,
       level: 12,
@@ -59,6 +60,29 @@ test("syncRoster updates level and rank, keeps details, and removes leavers", ()
   assert.equal(only.level, 20);
   assert.equal(only.guildRank, 1);
   assert.equal(only.notes, "portals");
+});
+
+test("syncRoster picks up a changed surname", () => {
+  const [m] = store.syncRoster([jaina]);
+  store.syncRoster([{ ...jaina, surname: "Theramore" }]);
+  assert.equal(store.get(m.id)?.surname, "Theramore");
+});
+
+test("a guild-sync table without surname gains the column, keeping rows", () => {
+  const raw = openDatabase(":memory:");
+  raw.exec(`CREATE TABLE members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, character_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    main_class TEXT NOT NULL, main_spec TEXT, level INTEGER NOT NULL DEFAULT 0, guild_rank INTEGER NOT NULL DEFAULT 0,
+    backup_class TEXT, backup_spec TEXT, primary_professions TEXT NOT NULL DEFAULT '[]',
+    secondary_professions TEXT NOT NULL DEFAULT '[]', sweat_factor TEXT, leveling_pref TEXT,
+    notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  raw.exec(`INSERT INTO members (character_name, main_class, level, created_at, updated_at) VALUES ('Jaina', 'mage', 12, 'x', 'x')`);
+  const s = new MemberStore(raw);
+  assert.equal(s.list()[0].surname, null);
+  s.syncRoster([jaina]);
+  assert.equal(s.list()[0].surname, "Proudmoore");
+  new MemberStore(raw); // idempotent
+  raw.close();
 });
 
 test("applyArmory replaces professions and only fills an empty main spec", () => {
