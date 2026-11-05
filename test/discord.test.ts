@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { FastifyBaseLogger } from "fastify";
 import type { FetchFn } from "../src/blizzard.js";
 import type { Member } from "../src/db.js";
-import { buildFirstsEmbed, buildJoinEmbed, DiscordNotifier } from "../src/discord.js";
+import { buildFirstsEmbed, buildJoinEmbed, DiscordNotifier, type FirstsWho } from "../src/discord.js";
 
 const thrall: Member = {
   id: 1,
@@ -142,4 +142,19 @@ test("notifier posts guild firsts and swallows failures", async () => {
   const { log, warnings } = fakeLog();
   await new DiscordNotifier({ webhookUrl: HOOK }, log, boom).guildFirsts(who, ["x"], "2026-11-10T08:00:00.000Z");
   assert.deepEqual(warnings[0][0], { error: "boom" });
+});
+
+test("embed builder errors are logged, never thrown", async () => {
+  const boom = { get mainClass(): string { throw new Error("boom"); } } as unknown as Member;
+  const badWho = { get name(): string { throw new Error("boom"); } } as unknown as FirstsWho;
+  let calls = 0;
+  const fetchFn = (async () => { calls++; return new Response(null, { status: 204 }); }) as FetchFn;
+  const { log, warnings } = fakeLog();
+  const notifier = new DiscordNotifier({ webhookUrl: HOOK }, log, fetchFn);
+  await notifier.memberJoined(boom);
+  await notifier.guildFirsts(badWho, ["x"], "2026-11-05T00:00:00.000Z");
+  assert.equal(calls, 0);
+  assert.equal(warnings.length, 2);
+  assert.deepEqual(warnings[0][0], { error: "boom" });
+  assert.ok(!JSON.stringify(warnings).includes(HOOK));
 });

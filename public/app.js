@@ -369,7 +369,7 @@ const TABS = ["roster", "classes", "crafting", "progress"];
 
 function applyTab() {
   const wanted = location.hash.slice(1);
-  const hiddenTab = document.querySelector(`.tab[data-tab="${wanted}"]`)?.classList.contains("hidden");
+  const hiddenTab = TABS.includes(wanted) && document.querySelector(`.tab[data-tab="${wanted}"]`)?.classList.contains("hidden");
   const tab = TABS.includes(wanted) && !hiddenTab ? wanted : "roster";
   $("#roster-panel").classList.toggle("hidden", tab !== "roster");
   $("#class-overview").classList.toggle("hidden", tab !== "classes");

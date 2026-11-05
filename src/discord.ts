@@ -86,16 +86,17 @@ export class DiscordNotifier {
   ) {}
 
   memberJoined(m: Member): Promise<void> {
-    return this.send(buildJoinEmbed(m, this.config.siteUrl));
+    return this.send(() => buildJoinEmbed(m, this.config.siteUrl));
   }
 
   guildFirsts(who: FirstsWho, claims: string[], at: string): Promise<void> {
-    return this.send(buildFirstsEmbed(who, claims, at, this.config.siteUrl));
+    return this.send(() => buildFirstsEmbed(who, claims, at, this.config.siteUrl));
   }
 
   // Never throws: a lost announcement must not affect the API response. Logs never include the URL.
-  private async send(embed: Embed): Promise<void> {
+  private async send(build: () => Embed): Promise<void> {
     try {
+      const embed = build();
       const res = await this.fetchFn(this.config.webhookUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
