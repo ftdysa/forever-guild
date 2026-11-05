@@ -85,9 +85,15 @@ test("history lists a character's rows, any case, oldest first", () => {
 test("bare profession skill keys from before tiers become <profession>:300, once", () => {
   const db = openDatabase(":memory:");
   const s = new ProgressStore(db);
-  s.addMilestone({ ...sixty, kind: "skill", key: "alchemy" });
+  const legacy = { ...sixty, kind: "skill" as const, key: "alchemy", source: "before_tracking" as const, reachedAt: "2026-11-01T00:00:00.000Z" };
+  s.addMilestone(legacy);
+  s.markAnnounced("Grom", "skill", "alchemy");
   s.addMilestone(sixty);
   new ProgressStore(db);
   new ProgressStore(db);
   assert.deepEqual(s.milestones().map((m) => [m.kind, m.key]), [["level", "60"], ["skill", "alchemy:300"]]);
+  const migrated = s.milestones().find((m) => m.kind === "skill");
+  assert.equal(migrated?.announced, true);
+  assert.equal(migrated?.source, "before_tracking");
+  assert.equal(migrated?.reachedAt, "2026-11-01T00:00:00.000Z");
 });

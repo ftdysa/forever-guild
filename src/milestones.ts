@@ -78,10 +78,11 @@ export interface DetectInput {
 }
 
 // Where a level or skill milestone stands in a snapshot: its value, or null when the snapshot
-// can't tell (skills are only known once the armory has been read, which sets race).
+// can't tell (skills are only known once the armory has been read, which sets race, and a
+// snapshot with no skills at all is a day the professions read returned nothing, not zero).
 function progressIn(m: { kind: MilestoneKind; key: string }, s: Snapshot): { value: number; threshold: number } | null {
   if (m.kind === "level") return { value: s.level, threshold: Number(m.key) };
-  if (m.kind !== "skill" || s.race === null) return null;
+  if (m.kind !== "skill" || s.race === null || Object.keys(s.skills).length === 0) return null;
   const [profession, tier] = parseSkillKey(m.key);
   return { value: s.skills[profession] ?? 0, threshold: tier };
 }

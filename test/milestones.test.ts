@@ -144,6 +144,20 @@ test("an achievement for another class, or dated in the future, is not trusted",
   }
 });
 
+test("a snapshot with armory data but no skills at all is unknown for skills, not zero", () => {
+  const today = "2026-11-10";
+  const run = (earlier: Snapshot, alchemy: number) => {
+    const st = state({ level: 59, skills: { alchemy }, pvpRank: 0 });
+    const brackets = bracketsFor(st, [earlier, snap({ day: today, level: 59, skills: { alchemy } })], today);
+    const skills = detectMilestones(input({ state: st, prior: earlier, brackets, existing: [] })).filter((m) => m.kind === "skill");
+    return brief(skills);
+  };
+  // empty skills (e.g. professions endpoint returned nothing): newcomer is not credited with 75/150
+  assert.deepEqual(run(snap({ skills: {} }), 160), [["skill", "alchemy:75", "before_joining", null], ["skill", "alchemy:150", "before_joining", null]]);
+  // other professions present, this one missing: the character learned it later, so it was 0
+  assert.deepEqual(run(snap({ skills: { mining: 50 } }), 80), [["skill", "alchemy:75", "observed", LOGIN]]);
+});
+
 test("newcomers already past a milestone are before_joining", () => {
   assert.deepEqual(brief(detectMilestones(input({ prior: null, brackets: {} }))), [["level", "60", "before_joining", null]]);
 });
