@@ -84,3 +84,15 @@ test("latestBelowLevel finds the latest earlier row under the level, skipping ro
   assert.equal(s.latestBelowLevel("Grom", "2026-11-05", 60), null);
   assert.equal(s.latestBelowLevel("Nobody", "2026-11-09", 60), null);
 });
+
+test("firstAtOrAbove finds the earliest row after a day at or above the level", () => {
+  const s = fresh();
+  s.upsertSnapshot("Grom", "2026-11-01", { classId: "warrior", level: 18 });
+  s.upsertSnapshot("Grom", "2026-11-02", { level: 19 });
+  s.upsertSnapshot("Grom", "2026-11-03", { level: 22 });
+  s.upsertSnapshot("Grom", "2026-11-05", { level: 31 });
+  assert.equal(s.firstAtOrAbove("grom", "2026-11-01", 20)?.day, "2026-11-03");
+  assert.equal(s.firstAtOrAbove("Grom", "2026-11-03", 20)?.day, "2026-11-05");
+  assert.equal(s.firstAtOrAbove("Grom", "2026-11-01", 40), null);
+  assert.equal(s.firstAtOrAbove("Nobody", "2026-11-01", 20), null);
+});

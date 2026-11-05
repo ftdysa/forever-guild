@@ -1,8 +1,11 @@
 import type { CharacterInfo } from "./armory.js";
 import type { Member, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
-import { claimedFirsts, computeFirsts, detectMilestones, LEVEL_MILESTONES } from "./milestones.js";
+import { claimedFirsts, computeFirsts, crossingDay, detectMilestones, LEVEL_MILESTONES } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
+
+const DAY_MS = 86_400_000;
+const FRESH_DAYS = 2;
 
 // History key for a character: Forever first names aren't unique, so the surname is part of it.
 export const progressName = (characterName: string, surname: string | null): string =>
@@ -44,26 +47,33 @@ export class ProgressRecorder {
     if (!today) return;
 
     const level = Math.max(m.level, c.level);
-    // One comparison snapshot per threshold the character meets now.
-    const priorBelowLevel = Object.fromEntries(
-      LEVEL_MILESTONES.filter((n) => level >= n).map((n) => [String(n), this.store.latestBelowLevel(name, day, n)]),
-    );
-    const added = detectMilestones({
+    // Per threshold the character meets now: the last earlier-day snapshot below it, and the first
+    // later one at or above it (today's row at the latest), bracketing when it was crossed.
+    const met = LEVEL_MILESTONES.filter((n) => level >= n).map((n) => [String(n), n, this.store.latestBelowLevel(name, day, n)] as const);
+    const priorBelowLevel = Object.fromEntries(met.map(([k, , below]) => [k, below]));
+    const firstAtOrAboveLevel = Object.fromEntries(met.map(([k, n, below]) => [k, below && this.store.firstAtOrAbove(name, below.day, n)]));
+    const input = {
       name,
       state: { classId: m.mainClass, race: today.race, level, skills: today.skills, pvpRank: today.pvpRank },
       prior,
       priorBelowLevel,
+      firstAtOrAboveLevel,
       launchMember: this.store.firstDay(name) === this.store.trackingSince(),
       existing: this.store.milestonesFor(name),
       achievements: c.milestoneAchievements,
       lastLogin: c.lastLogin,
       now: new Date(nowMs).toISOString(),
-    }).filter((x) => this.store.addMilestone(x));
+    };
+    const before = computeFirsts(this.store.milestones());
+    const added = detectMilestones(input).filter((x) => this.store.addMilestone(x));
 
-    const observed = added.filter((x) => x.source === "observed");
+    // Only crossings first seen in the last two days are news; older ones (history re-read after
+    // a deploy, or a long armory outage) are recorded silently.
+    const freshFrom = utcDay(nowMs - FRESH_DAYS * DAY_MS);
+    const observed = added.filter((x) => x.source === "observed" && crossingDay(x, input) >= freshFrom);
     if (observed.length === 0) return;
     const firsts = computeFirsts(this.store.milestones());
-    const claiming = observed.map((x) => ({ x, claims: claimedFirsts(x, firsts) })).filter((e) => e.claims.length > 0);
+    const claiming = observed.map((x) => ({ x, claims: claimedFirsts(x, firsts, before) })).filter((e) => e.claims.length > 0);
     if (claiming.length === 0) return;
     for (const { x } of claiming) this.store.markAnnounced(x.name, x.kind, x.key);
     await this.notifier?.guildFirsts(

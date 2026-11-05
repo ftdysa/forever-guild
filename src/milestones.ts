@@ -47,6 +47,9 @@ export interface DetectInput {
   // threshold (missing when there is none). The level is written every sync but skills/PvP only
   // by the armory pass, so "previously seen below N" can predate `prior`.
   priorBelowLevel: Record<string, Snapshot | null>;
+  // Per level key, the character's earliest snapshot after priorBelowLevel's day at or above that
+  // threshold: the crossing happened between the two days.
+  firstAtOrAboveLevel: Record<string, Snapshot | null>;
   // On the roster when tracking began (first snapshot day == tracking start).
   launchMember: boolean;
   existing: Pick<Milestone, "kind" | "key">[];
@@ -71,11 +74,22 @@ function wasBelow(kind: MilestoneKind, key: string, snap: Snapshot | null): bool
   return (snap.pvpRank ?? 0) < Number(key);
 }
 
-// Data only changes when someone plays, so the last login is the session it happened in. Ignore it
-// if it predates the comparison snapshot or is in the future.
-function observedAt(i: DetectInput, snap: Snapshot): string {
-  const ok = i.lastLogin && i.lastLogin >= `${snap.day}T00:00:00.000Z` && i.lastLogin <= i.now;
-  return ok ? (i.lastLogin as string) : i.now;
+// The UTC day a milestone was first seen met: for levels, the first snapshot at or above the
+// threshold (today if there is none); skills and PvP are only seen by today's armory read.
+export function crossingDay(m: { kind: MilestoneKind; key: string }, i: Pick<DetectInput, "firstAtOrAboveLevel" | "now">): string {
+  const at = m.kind === "level" ? i.firstAtOrAboveLevel[m.key] : null;
+  return at?.day ?? i.now.slice(0, 10);
+}
+
+// Data only changes when someone plays, so the last login is the session it happened in when it
+// falls between the comparison snapshot and the day the milestone was first seen. Otherwise a
+// level is dated to the start of that day (a re-read of old history must not move it to today),
+// and skills and PvP to now.
+function observedAt(kind: MilestoneKind, key: string, i: DetectInput, snap: Snapshot): string {
+  const seen = crossingDay({ kind, key }, i);
+  const ok = i.lastLogin && i.lastLogin >= `${snap.day}T00:00:00.000Z` && i.lastLogin <= `${seen}T23:59:59.999Z` && i.lastLogin <= i.now;
+  if (ok) return i.lastLogin as string;
+  return kind === "level" ? `${seen}T00:00:00.000Z` : i.now;
 }
 
 // Achievements are account-wide, so a date is only trusted when this character meets the
@@ -94,7 +108,7 @@ export function detectMilestones(i: DetectInput): NewMilestone[] {
     .map(({ kind, key }): NewMilestone => {
       const base = { name: i.name, kind, key, classId: i.state.classId, race: i.state.race };
       const snap = comparison(kind, key, i);
-      if (snap && wasBelow(kind, key, snap)) return { ...base, source: "observed", reachedAt: observedAt(i, snap) };
+      if (snap && wasBelow(kind, key, snap)) return { ...base, source: "observed", reachedAt: observedAt(kind, key, i, snap) };
       if (!i.launchMember) return { ...base, source: "before_joining", reachedAt: null };
       const at = achievedAt(kind, key, i);
       return at ? { ...base, source: "achievement", reachedAt: at } : { ...base, source: "before_tracking", reachedAt: null };
@@ -165,22 +179,25 @@ export function computeFirsts(all: Milestone[], currentNames: string[] = [], rac
   };
 }
 
-// Labels for the categories `m` now leads, for the Discord announcement.
-export function claimedFirsts(m: Pick<Milestone, "name" | "kind" | "key" | "classId" | "race">, firsts: Firsts): string[] {
-  const leads = (c: Category | undefined) => c?.holders[0]?.name.toLowerCase() === m.name.toLowerCase();
+// Labels for the categories `m` now leads, for the Discord announcement. With `before` (the
+// firsts before `m` was recorded), a category that already had a dated holder is not claimed:
+// each category is announced once, however later records re-sort it.
+export function claimedFirsts(m: Pick<Milestone, "name" | "kind" | "key" | "classId" | "race">, firsts: Firsts, before?: Firsts): string[] {
+  const leads = (cat: (f: Firsts) => Category | undefined) =>
+    cat(firsts)?.holders[0]?.name.toLowerCase() === m.name.toLowerCase() && !(before && cat(before)?.holders.length);
   if (m.kind === "level") {
-    const overall = leads(firsts.byLevel[m.key]) && `First to reach level ${m.key}`;
+    const overall = leads((f) => f.byLevel[m.key]) && `First to reach level ${m.key}`;
     // Class and race firsts are announced for level 60 only; lower ones just show on the site.
     if (m.key !== LEVEL_KEY) return overall ? [overall] : [];
     return [
       overall,
-      leads(firsts.byClassLevel[m.classId]?.[m.key]) && `First ${findClass(m.classId)?.name ?? m.classId} to reach level 60`,
-      m.race && leads(firsts.byRace[m.race]) && `First ${m.race} to reach level 60`,
+      leads((f) => f.byClassLevel[m.classId]?.[m.key]) && `First ${findClass(m.classId)?.name ?? m.classId} to reach level 60`,
+      m.race && leads((f) => f.byRace[m.race as string]) && `First ${m.race} to reach level 60`,
     ].filter((s): s is string => !!s);
   }
   if (m.kind === "skill") {
     const name = PROFESSIONS.find((p) => p.id === m.key)?.name ?? m.key;
-    return leads(firsts.bySkill[m.key]) ? [`First to reach 300 ${name}`] : [];
+    return leads((f) => f.bySkill[m.key]) ? [`First to reach 300 ${name}`] : [];
   }
-  return leads(firsts.byPvpRank[m.key]) ? [`First to reach PvP rank ${m.key}`] : [];
+  return leads((f) => f.byPvpRank[m.key]) ? [`First to reach PvP rank ${m.key}`] : [];
 }

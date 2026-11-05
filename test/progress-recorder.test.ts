@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import type { CharacterInfo } from "../src/armory.js";
 import { openDatabase, type Member, type RosterMember } from "../src/db.js";
 import { ProgressRecorder } from "../src/progress.js";
-import { ProgressStore } from "../src/progress-store.js";
+import { computeFirsts } from "../src/milestones.js";
+import { ProgressStore, utcDay } from "../src/progress-store.js";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 10, 5, 12);
@@ -128,4 +129,56 @@ test("characters are keyed by full name, so a shared first name keeps separate h
   assert.deepEqual(store.snapshots().map((s) => [s.name, s.level, s.race]), [["The Antichrist", 20, null], ["The Bonelord", 60, "Undead"]]);
   assert.deepEqual(store.milestones().map((m) => [m.name, m.kind, m.key]), ["10", "20", "30", "40", "50", "60"].map((k) => ["The Bonelord", "level", k]));
   assert.deepEqual(posts, []);
+});
+
+test("deploy over pre-milestone history: old crossings are dated from snapshots, not the login, and stay silent", async () => {
+  const { store, rec, posts, now } = setup();
+  const day = (d: number) => `2026-11-0${d}`;
+  const levels = (d: number, ann: number, bob: number) =>
+    store.upsertSnapshots(day(d), [{ name: "Ann", patch: { classId: "warrior", level: ann } }, { name: "Bob", patch: { classId: "warrior", level: bob } }]);
+  // Snapshots written before level milestones 10-50 existed: Ann 8 -> 12 -> 25, Bob 18 -> 22 -> 31.
+  levels(1, 8, 18);
+  levels(2, 12, 22);
+  levels(4, 25, 31);
+  assert.equal(utcDay(now()), "2026-11-05");
+  // First sync after deploy; Bob logged in later, so he is processed first.
+  rec.recordRoster([roster("Ann", 25), roster("Bob", 31)]);
+  await rec.recordArmory(member("Bob", 31), info({ level: 31, lastLogin: "2026-11-05T10:00:00.000Z" }));
+  await rec.recordArmory(member("Ann", 25), info({ level: 25, lastLogin: "2026-11-05T09:00:00.000Z" }));
+
+  const rows = store.milestones().filter((m) => m.source === "observed").map((m) => [m.name, m.key, m.reachedAt, m.announced]);
+  assert.deepEqual(rows, [
+    ["Ann", "10", "2026-11-02T00:00:00.000Z", false],
+    ["Ann", "20", "2026-11-04T00:00:00.000Z", false],
+    ["Bob", "20", "2026-11-02T00:00:00.000Z", false],
+    ["Bob", "30", "2026-11-04T00:00:00.000Z", true],
+  ]);
+  assert.equal(computeFirsts(store.milestones()).byLevel["20"].holders[0].name, "Bob");
+  // Only the crossing seen within the last two days is announced; nothing older, nothing twice.
+  assert.deepEqual(posts, [["Bob", ["First to reach level 30"]]]);
+});
+
+test("a fresh crossing is dated by last login and announced", async () => {
+  const { store, rec, posts, nextDay } = setup();
+  rec.recordRoster([roster("Grom", 29)]);
+  await rec.recordArmory(member("Grom", 29), info({ level: 29 }));
+  nextDay();
+  rec.recordRoster([roster("Grom", 30)]);
+  await rec.recordArmory(member("Grom", 30), info({ level: 30, lastLogin: "2026-11-06T08:00:00.000Z" }));
+  const thirty = store.milestonesFor("Grom").find((m) => m.key === "30");
+  assert.deepEqual([thirty?.source, thirty?.reachedAt, thirty?.announced], ["observed", "2026-11-06T08:00:00.000Z", true]);
+  assert.deepEqual(posts, [["Grom", ["First to reach level 30"]]]);
+});
+
+test("a category already announced is not announced again when a later-processed member sorts ahead", async () => {
+  const { store, rec, posts, nextDay } = setup();
+  rec.recordRoster([roster("Ann", 19), roster("Bob", 19)]);
+  await rec.recordArmory(member("Ann", 19), info({ level: 19 }));
+  await rec.recordArmory(member("Bob", 19), info({ level: 19 }));
+  nextDay();
+  rec.recordRoster([roster("Ann", 20), roster("Bob", 20)]);
+  await rec.recordArmory(member("Ann", 20), info({ level: 20, lastLogin: "2026-11-06T10:00:00.000Z" }));
+  await rec.recordArmory(member("Bob", 20), info({ level: 20, lastLogin: "2026-11-06T09:00:00.000Z" }));
+  assert.equal(computeFirsts(store.milestones()).byLevel["20"].holders[0].name, "Bob");
+  assert.deepEqual(posts, [["Ann", ["First to reach level 20"]]]);
 });

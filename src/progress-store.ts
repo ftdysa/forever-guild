@@ -163,6 +163,14 @@ export class ProgressStore {
     return r ? toSnapshot(r) : null;
   }
 
+  // The character's earliest row from a day after `afterDay` whose level was at least `level`.
+  firstAtOrAbove(name: string, afterDay: string, level: number): Snapshot | null {
+    const r = this.db
+      .prepare("SELECT * FROM member_snapshots WHERE character_name = ? AND day > ? AND level >= ? ORDER BY day LIMIT 1")
+      .get(name, afterDay, level) as SnapshotRow | undefined;
+    return r ? toSnapshot(r) : null;
+  }
+
   firstDay(name: string): string | null {
     const r = this.db.prepare("SELECT MIN(day) AS day FROM member_snapshots WHERE character_name = ?").get(name) as { day: string | null };
     return r.day;
