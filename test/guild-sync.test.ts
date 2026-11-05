@@ -212,3 +212,22 @@ test("progress failures are logged and never break the roster refresh or armory 
   assert.equal(thrall.mainSpec, "restoration");
   assert.deepEqual(warnings, ["progress snapshot failed", "progress recording failed"]);
 });
+
+test("members sharing a first name sync as two characters, each with their own armory and history", async () => {
+  const { r, store, sync, progress } = setup();
+  const row = (surname: string, slug: string, level: number) => ({
+    character: { name: "The", surname, slug, level, playable_class: { id: 9 } },
+    rank: 4,
+  });
+  r[ROSTER] = { members: [row("Bonelord", "the-bonelord", 30), row("Antichrist", "the-antichrist", 25)] };
+  for (const [surname, slug, level] of [["Bonelord", "the-bonelord", 30], ["Antichrist", "the-antichrist", 25]] as const) {
+    r[char(slug)] = { name: "The", surname, level, character_class: { id: 9 }, race: { name: surname === "Bonelord" ? "Undead" : "Orc" } };
+  }
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(
+    store.list().map((m) => [m.characterName, m.surname, m.level, m.armory?.race]).sort(),
+    [["The", "Antichrist", 25, "Orc"], ["The", "Bonelord", 30, "Undead"]],
+  );
+  assert.deepEqual(progress.snapshots().map((s) => [s.name, s.level, s.race]), [["The Antichrist", 25, "Orc"], ["The Bonelord", 30, "Undead"]]);
+});

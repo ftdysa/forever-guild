@@ -1,4 +1,5 @@
 import { computeFirsts, type Firsts } from "./milestones.js";
+import { progressName } from "./progress.js";
 import type { Milestone, Snapshot } from "./progress-store.js";
 
 export interface LevelSeries {
@@ -25,6 +26,8 @@ export interface ProgressReport {
   series: LevelSeries[];
   pvp: PvpSeries[];
   firsts: Firsts;
+  // Current members by lowercased progress name, so any name shown can open their armory.
+  links: Record<string, { characterName: string; surname: string | null }>;
 }
 
 // Keeps the first and last rows and both rows around every change, dropping the middle of
@@ -35,9 +38,18 @@ function compress<T extends [string, ...number[]]>(rows: Snapshot[], point: (r: 
   return points.filter((p, i) => i === 0 || i === points.length - 1 || value(p) !== value(points[i - 1]) || value(p) !== value(points[i + 1]));
 }
 
-// `snapshots` must be ordered by name, then day (ProgressStore.snapshots()).
-export function buildProgress(snapshots: Snapshot[], milestones: Milestone[], currentNames: string[]): ProgressReport {
-  const current = new Set(currentNames.map((n) => n.toLowerCase()));
+// `snapshots` must be ordered by name, then day (ProgressStore.snapshots()). History is keyed by
+// progress name (first name + surname), so a member is current when theirs matches.
+export function buildProgress(
+  snapshots: Snapshot[],
+  milestones: Milestone[],
+  members: { characterName: string; surname: string | null }[],
+): ProgressReport {
+  const links = Object.fromEntries(
+    members.map(({ characterName, surname }) => [progressName(characterName, surname).toLowerCase(), { characterName, surname }]),
+  );
+  const currentNames = Object.keys(links);
+  const current = new Set(currentNames);
   const byName = new Map<string, Snapshot[]>();
   for (const s of snapshots) {
     const key = s.name.toLowerCase();
@@ -66,5 +78,5 @@ export function buildProgress(snapshots: Snapshot[], milestones: Milestone[], cu
 
   const days = snapshots.map((s) => s.day).sort();
   const races = [...new Set(snapshots.map((s) => s.race).filter((r): r is string => !!r))];
-  return { trackingSince: days[0] ?? null, series, pvp, firsts: computeFirsts(milestones, currentNames, races) };
+  return { trackingSince: days[0] ?? null, series, pvp, firsts: computeFirsts(milestones, currentNames, races), links };
 }

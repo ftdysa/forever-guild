@@ -64,6 +64,19 @@ test("character lookup: found, not found, and invalid names never reach Blizzard
   assert.equal(fake.calls.length, before);
 });
 
+test("character lookup: an invalid surname is 400 and never reaches Blizzard", async () => {
+  const before = fake.calls.length;
+  for (const bad of ["1", "x", "a%20b", "..%2F", "Ab&surname=Cd"]) {
+    const res = await app.inject({ method: "GET", url: `/api/armory/character/Jaina?surname=${bad}`, cookies });
+    assert.equal(res.statusCode, 400, bad);
+    assert.deepEqual(res.json(), { error: "invalid surname" });
+  }
+  assert.equal(fake.calls.length, before);
+  // Classic Era has realms: the surname is ignored.
+  const ok = await app.inject({ method: "GET", url: "/api/armory/character/Jaina?surname=Proudmoore", cookies });
+  assert.equal(ok.statusCode, 200);
+});
+
 test("upstream failure is 502 with a generic error", async () => {
   fake.state.apiDown = true;
   try {

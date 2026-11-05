@@ -63,7 +63,7 @@ interface Row {
 const membersTable = (name: string) => `
 CREATE TABLE IF NOT EXISTS ${name} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  character_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  character_name TEXT NOT NULL COLLATE NOCASE,
   surname TEXT,
   main_class TEXT NOT NULL,
   main_spec TEXT,
@@ -86,6 +86,12 @@ const LEGACY_COLUMNS = [
   "id", "character_name", "main_class", "main_spec", "backup_class", "backup_spec", "primary_professions",
   "secondary_professions", "sweat_factor", "leveling_pref", "notes", "created_at", "updated_at",
 ];
+
+// Forever lets characters share a first name, so a character is its first name plus surname
+// (null off Forever), case-insensitively.
+const IDENTITY_INDEX =
+  "CREATE UNIQUE INDEX IF NOT EXISTS members_identity ON members (character_name COLLATE NOCASE, IFNULL(surname, '') COLLATE NOCASE)";
+const identity = (name: string, surname: string | null) => `${name.toLowerCase()}\u0000${(surname ?? "").toLowerCase()}`;
 
 function rowToMember(r: Row): Member {
   return {
@@ -122,23 +128,47 @@ export class MemberStore {
     this.migrate();
     this.db.exec(membersTable("members"));
     // Added after the guild-sync schema; plain ALTER is enough for nullable columns.
-    const cols = (this.db.pragma("table_info(members)") as { name: string }[]).map((c) => c.name);
+    const cols = this.columns("members");
     for (const col of ["surname", "armory"]) {
       if (!cols.includes(col)) this.db.exec(`ALTER TABLE members ADD COLUMN ${col} TEXT`);
     }
+    this.migrateIdentity();
+    this.db.exec(IDENTITY_INDEX);
+  }
+
+  private columns(table: string): string[] {
+    return (this.db.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name);
   }
 
   // Tables from the hand-entered roster era have a NOT NULL main_spec and no level or rank.
   // SQLite can't relax NOT NULL in place, so such a table is rebuilt once, keeping its rows.
   private migrate(): void {
-    const cols = new Set((this.db.pragma("table_info(members)") as { name: string }[]).map((c) => c.name));
-    if (cols.size === 0 || cols.has("level")) return;
-    const keep = LEGACY_COLUMNS.filter((c) => cols.has(c)).join(", ");
+    const cols = this.columns("members");
+    if (cols.length === 0 || cols.includes("level")) return;
+    this.rebuild((c) => LEGACY_COLUMNS.includes(c));
+  }
+
+  // Older tables made the first name alone UNIQUE, which breaks on two characters sharing it.
+  // SQLite can't drop a column constraint in place, so such a table is rebuilt once with every
+  // row, id and column; the identity index replaces the constraint.
+  private migrateIdentity(): void {
+    const sql = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'members'").pluck().get() as string;
+    if (/\bUNIQUE\b/i.test(sql)) this.rebuild(() => true);
+  }
+
+  // Recreates members with the current schema in one transaction, copying the old table's
+  // columns that `keep` accepts and the new table has. The id sequence carries over, so ids
+  // freed before the rebuild are never reused.
+  private rebuild(keep: (column: string) => boolean): void {
     this.db.transaction(() => {
+      const seq = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'members'").pluck().get() as number | undefined;
       this.db.exec(membersTable("members_new"));
-      this.db.exec(`INSERT INTO members_new (${keep}) SELECT ${keep} FROM members`);
+      const fresh = this.columns("members_new");
+      const cols = this.columns("members").filter((c) => keep(c) && fresh.includes(c)).join(", ");
+      this.db.exec(`INSERT INTO members_new (${cols}) SELECT ${cols} FROM members`);
       this.db.exec("DROP TABLE members");
       this.db.exec("ALTER TABLE members_new RENAME TO members");
+      if (seq !== undefined) this.db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'members'").run(seq);
     })();
   }
 
@@ -157,7 +187,8 @@ export class MemberStore {
   syncRoster(roster: RosterMember[]): Member[] {
     const now = new Date().toISOString();
     return this.db.transaction(() => {
-      const existing = new Map(this.list().map((m) => [m.characterName.toLowerCase(), m]));
+      const members = this.list();
+      const existing = new Map(members.map((m) => [identity(m.characterName, m.surname), m]));
       const insert = this.db.prepare(
         `INSERT INTO members (character_name, surname, main_class, level, guild_rank, created_at, updated_at)
          VALUES (@name, @surname, @classId, @level, @rank, @now, @now)`,
@@ -167,14 +198,33 @@ export class MemberStore {
          WHERE id = @id`,
       );
       const row = (r: RosterMember) => ({ name: r.name, surname: r.surname ?? null, classId: r.classId, level: r.level, rank: r.rank, now });
-      const added: number[] = [];
-      for (const r of roster) {
-        const m = existing.get(r.name.toLowerCase());
-        existing.delete(r.name.toLowerCase());
-        if (!m) added.push(Number(insert.run(row(r)).lastInsertRowid));
-        else if (m.surname !== r.surname || m.mainClass !== r.classId || m.level !== r.level || m.guildRank !== r.rank) {
+      const apply = (r: RosterMember, m: Member) => {
+        existing.delete(identity(m.characterName, m.surname));
+        if (m.surname !== r.surname || m.mainClass !== r.classId || m.level !== r.level || m.guildRank !== r.rank) {
           update.run({ ...row(r), id: m.id });
         }
+      };
+      // A first name held by exactly one member and one roster entry is one character whose
+      // surname changed (or was read for the first time), so they keep their row and details.
+      const soloNames = (names: string[]) => {
+        const lower = names.map((n) => n.toLowerCase());
+        return new Set(lower.filter((n) => lower.indexOf(n) === lower.lastIndexOf(n)));
+      };
+      const soloRoster = soloNames(roster.map((r) => r.name));
+      const soloMembers = soloNames(members.map((m) => m.characterName));
+      const renamed = (name: string) =>
+        soloRoster.has(name) && soloMembers.has(name) ? members.find((m) => m.characterName.toLowerCase() === name) : undefined;
+      const unmatched: RosterMember[] = [];
+      for (const r of roster) {
+        const m = existing.get(identity(r.name, r.surname));
+        if (m) apply(r, m);
+        else unmatched.push(r);
+      }
+      const added: number[] = [];
+      for (const r of unmatched) {
+        const m = renamed(r.name.toLowerCase());
+        if (m) apply(r, m);
+        else added.push(Number(insert.run(row(r)).lastInsertRowid));
       }
       const remove = this.db.prepare("DELETE FROM members WHERE id = ?");
       for (const gone of existing.values()) remove.run(gone.id);

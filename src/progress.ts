@@ -4,6 +4,10 @@ import type { DiscordNotifier } from "./discord.js";
 import { claimedFirsts, computeFirsts, detectMilestones, MAX_LEVEL } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
 
+// History key for a character: Forever first names aren't unique, so the surname is part of it.
+export const progressName = (characterName: string, surname: string | null): string =>
+  surname ? `${characterName} ${surname}` : characterName;
+
 // Writes the guild sync's view of each character into daily snapshots, records milestones as
 // they are crossed, and announces new guild firsts.
 export class ProgressRecorder {
@@ -17,7 +21,7 @@ export class ProgressRecorder {
   recordRoster(roster: RosterMember[]): void {
     this.store.upsertSnapshots(
       utcDay(this.now()),
-      roster.map((r) => ({ name: r.name, patch: { classId: r.classId, level: r.level } })),
+      roster.map((r) => ({ name: progressName(r.name, r.surname), patch: { classId: r.classId, level: r.level } })),
     );
   }
 
@@ -25,7 +29,7 @@ export class ProgressRecorder {
   async recordArmory(m: Member, c: CharacterInfo): Promise<void> {
     const nowMs = this.now();
     const day = utcDay(nowMs);
-    const name = m.characterName;
+    const name = progressName(m.characterName, m.surname);
     const skills = c.professions ? Object.fromEntries(Object.entries(c.professions.skills).map(([p, s]) => [p, s.skill])) : null;
     const patch: SnapshotPatch = {
       classId: m.mainClass,
@@ -58,7 +62,7 @@ export class ProgressRecorder {
     if (claiming.length === 0) return;
     for (const { x } of claiming) this.store.markAnnounced(x.name, x.kind, x.key);
     await this.notifier?.guildFirsts(
-      { name, surname: m.surname, classId: m.mainClass },
+      { name: m.characterName, surname: m.surname, classId: m.mainClass },
       claiming.flatMap((e) => e.claims),
       claiming[0].x.reachedAt ?? new Date(nowMs).toISOString(),
     );

@@ -91,7 +91,7 @@ export class GuildSync {
   private async enrich(m: Member): Promise<void> {
     try {
       // The full lookup (not just specs and professions) also warms the cache the armory dialog reads.
-      const c = await this.armory.character(m.characterName);
+      const c = await this.armory.character(m.characterName, m.surname);
       if (!c) return;
       this.store.applyArmory(m, {
         spec: c.spec?.specId ?? null,

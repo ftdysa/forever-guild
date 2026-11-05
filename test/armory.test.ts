@@ -319,6 +319,30 @@ test("forever resolves characters through the guild roster's slugs", async () =>
   assert.ok(fake.calls.includes(FOREVER));
 });
 
+// Forever lets characters share a first name; the surname tells them apart.
+function sharedNameFixture() {
+  const routes = foreverFixture();
+  const roster = routes["/data/wow/guild/old-school/roster"] as { members: unknown[] };
+  roster.members.push({ character: { name: "Jaina", surname: "Theramore", slug: "jaina-theramore", level: 30, playable_class: { id: 8 } }, rank: 4 });
+  routes["/profile/wow/character/jaina-theramore"] = { name: "Jaina", surname: "Theramore", level: 30, character_class: { id: 8 }, last_login_timestamp: 1 };
+  return routes;
+}
+
+test("forever: a shared first name is resolved by surname", async () => {
+  const { armory, fake } = setup(sharedNameFixture(), foreverCfg);
+  assert.equal((await armory.character("jaina", "PROUDMOORE"))?.level, 12);
+  assert.equal((await armory.character("Jaina", "Theramore"))?.level, 30);
+  assert.ok(fake.calls.includes(FOREVER));
+  assert.ok(fake.calls.includes("/profile/wow/character/jaina-theramore"));
+  assert.equal(await armory.character("Jaina", "Nobody"), null);
+});
+
+test("forever: a shared first name without a surname is ambiguous and costs no profile call", async () => {
+  const { armory, fake } = setup(sharedNameFixture(), foreverCfg);
+  assert.equal(await armory.character("jaina"), null);
+  assert.deepEqual(fake.calls.filter((c) => c.startsWith("/profile")), []);
+});
+
 test("forever: names outside the guild are not found and cost no profile call", async () => {
   const { armory, fake } = setup(foreverFixture(), foreverCfg);
   assert.equal(await armory.character("nobody"), null);

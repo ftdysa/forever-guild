@@ -210,10 +210,10 @@ function renderCoverage() {
 const fullName = (m) => (m.surname ? `${m.characterName} ${m.surname}` : m.characterName);
 
 // A member's full name, linked to the armory when it is enabled. Clicks are handled on #roster;
-// lookups go by first name, which is all the armory route accepts.
+// lookups go by first name plus surname, since Forever members can share a first name.
 function characterName(m, cls) {
   return armory
-    ? `<button class="${cls} link" data-action="armory" data-name="${esc(m.characterName)}" title="View armory">${esc(fullName(m))}</button>`
+    ? `<button class="${cls} link" data-action="armory" data-name="${esc(m.characterName)}" data-surname="${esc(m.surname ?? "")}" title="View armory">${esc(fullName(m))}</button>`
     : `<span class="${cls}">${esc(fullName(m))}</span>`;
 }
 
@@ -524,7 +524,8 @@ async function initArmory() {
   renderRoster();
 }
 
-const fetchCharacter = (name) => api("GET", `/api/armory/character/${encodeURIComponent(name)}`);
+const fetchCharacter = (name, surname) =>
+  api("GET", `/api/armory/character/${encodeURIComponent(name)}${surname ? `?surname=${encodeURIComponent(surname)}` : ""}`);
 
 function armoryError(r, what) {
   if (r.status === 404) {
@@ -632,10 +633,11 @@ function renderStats(stats) {
     .join("");
 }
 
-async function openArmory(name) {
+async function openArmory(name, surname) {
   hideTip();
   armoryGear = [];
-  $("#armory-name").textContent = name;
+  const full = fullName({ characterName: name, surname });
+  $("#armory-name").textContent = full;
   $("#armory-name").style.color = "";
   for (const id of ["#armory-ilvl", "#armory-sub", "#armory-spec"]) $(id).textContent = "";
   $("#armory-crest").className = "crest hidden";
@@ -645,13 +647,13 @@ async function openArmory(name) {
   $("#armory-status").textContent = "Consulting the armory…";
   $("#armory").showModal();
 
-  const r = await fetchCharacter(name);
+  const r = await fetchCharacter(name, surname);
   if (r.status === 401) {
     $("#armory").close();
     return showGate("Your session expired. Enter the passphrase again.");
   }
   if (!r.ok) {
-    $("#armory-status").textContent = armoryError(r, name);
+    $("#armory-status").textContent = armoryError(r, full);
     return;
   }
   const c = r.data;
@@ -829,7 +831,7 @@ $("#roster-table thead").addEventListener("click", (e) => {
 
 $("#roster").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action='armory']");
-  if (btn) openArmory(btn.dataset.name);
+  if (btn) openArmory(btn.dataset.name, btn.dataset.surname || null);
 });
 window.addEventListener("hashchange", applyTab);
 const bars = $("#class-bars");

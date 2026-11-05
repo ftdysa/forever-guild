@@ -9,6 +9,7 @@ const s = (name: string, day: string, level: number, over: Partial<Snapshot> = {
 
 test("empty history", () => {
   const r = buildProgress([], [], []);
+  assert.deepEqual(r.links, {});
   assert.equal(r.trackingSince, null);
   assert.deepEqual(r.series, []);
   assert.deepEqual(r.pvp, []);
@@ -19,7 +20,7 @@ test("series keep first, last and both sides of each change, so plateaus stay fl
   const r = buildProgress(
     [s("Grom", "2026-11-01", 40), s("Grom", "2026-11-02", 40), s("Grom", "2026-11-03", 40), s("Grom", "2026-11-04", 42), s("Grom", "2026-11-05", 42), s("Grom", "2026-11-06", 42)],
     [],
-    ["grom"],
+    [{ characterName: "grom", surname: null }],
   );
   assert.equal(r.trackingSince, "2026-11-01");
   assert.deepEqual(r.series, [{
@@ -37,7 +38,7 @@ test("former members stay, flagged; PvP lists only characters with rank or kills
       s("Grom", "2026-11-03", 50, { pvpRank: 4, honorableKills: 450 }),
     ],
     [],
-    ["arg"],
+    [{ characterName: "arg", surname: null }],
   );
   assert.deepEqual(r.series.map((x) => [x.name, x.current]), [["Arg", true], ["Grom", false]]);
   assert.deepEqual(r.pvp, [{
@@ -48,4 +49,17 @@ test("former members stay, flagged; PvP lists only characters with rank or kills
 
 test("races seen in snapshots appear in firsts.byRace even when unclaimed", () => {
   assert.deepEqual(Object.keys(buildProgress([s("Zap", "2026-11-01", 5, { race: "Gnome" })], [], []).firsts.byRace), ["Gnome"]);
+});
+
+test("current members are matched by full name and linked to their armory identity; former members are not", () => {
+  const r = buildProgress(
+    [s("The Bonelord", "2026-11-01", 30), s("The Antichrist", "2026-11-01", 20), s("The", "2026-11-01", 10)],
+    [],
+    [{ characterName: "The", surname: "Bonelord" }, { characterName: "Grom", surname: null }],
+  );
+  assert.deepEqual(r.series.map((x) => [x.name, x.current]), [["The Bonelord", true], ["The Antichrist", false], ["The", false]]);
+  assert.deepEqual(r.links, {
+    "the bonelord": { characterName: "The", surname: "Bonelord" },
+    grom: { characterName: "Grom", surname: null },
+  });
 });

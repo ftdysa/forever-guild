@@ -130,8 +130,12 @@ function spark(history, { esc, today }) {
 // Renders the Progress tab into `root` (#progress-panel).
 export function renderProgress(root, data, state, { esc, characterName, paintClasses, game, today }) {
   const colorOf = (id) => game.classes.find((c) => c.id === id)?.color ?? "#C0C0C0";
-  const who = (name, current) =>
-    current ? characterName({ characterName: name, surname: null }, "member") : `<span class="member former">${esc(name)}</span> <span class="muted">(former)</span>`;
+  // Names are first name + surname; current members link to their armory through data.links.
+  const who = (name) => {
+    const key = name.toLowerCase();
+    const link = Object.hasOwn(data.links, key) ? data.links[key] : null;
+    return link ? characterName(link, "member") : `<span class="member former">${esc(name)}</span> <span class="muted">(former)</span>`;
+  };
 
   // Class filter
   const counts = {};
@@ -160,7 +164,7 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
 
   // Guild firsts
   const holderLi = (h, rank) =>
-    `<li>${who(h.name, h.current)}${rank ? ` <span class="muted">${esc(rankTitle(rank, data.series.find((s) => s.name === h.name)?.race ?? null))}</span>` : ""} <span class="muted">· ${esc(fmtDate(h.reachedAt))}${h.source === "achievement" ? " · via achievement" : ""}</span></li>`;
+    `<li>${who(h.name)}${rank ? ` <span class="muted">${esc(rankTitle(rank, data.series.find((s) => s.name.toLowerCase() === h.name.toLowerCase())?.race ?? null))}</span>` : ""} <span class="muted">· ${esc(fmtDate(h.reachedAt))}${h.source === "achievement" ? " · via achievement" : ""}</span></li>`;
   const cardHtml = (c) => `<article class="first-card">
       <h4>${c.classId ? `<span class="cls" data-class="${esc(c.classId)}">${esc(c.title)}</span>` : esc(c.title)}</h4>
       ${c.holders.length ? `<ol class="first-holders">${c.holders.map((h) => holderLi(h, c.rank)).join("")}</ol>` : c.atLaunch.length ? "" : '<p class="muted">Unclaimed</p>'}
@@ -180,7 +184,7 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
   root.querySelector("#pvp-body").innerHTML = pvpRows(data.pvp, state.pvpSort)
     .map(
       (r) => `<tr>
-        <td><span class="cls" data-class="${esc(r.class)}">${who(r.name, r.current)}</span></td>
+        <td><span class="cls" data-class="${esc(r.class)}">${who(r.name)}</span></td>
         <td>${r.rank} <span class="muted">${esc(rankTitle(r.rank, r.race))}</span></td>
         <td>${r.highestRank} <span class="muted">${esc(rankTitle(r.highestRank, r.race))}</span></td>
         <td>${r.honorableKills.toLocaleString()}</td>

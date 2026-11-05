@@ -104,3 +104,13 @@ test("a ding is still observed when the armory refresh only succeeds days after 
   assert.deepEqual([m.source, m.reachedAt, m.announced], ["observed", login, true]);
   assert.equal(posts.length, 1);
 });
+
+test("characters are keyed by full name, so a shared first name keeps separate history", async () => {
+  const { store, rec, posts } = setup();
+  const named = (surname: string, level: number) => ({ ...roster("The", level, "warlock"), surname });
+  rec.recordRoster([named("Bonelord", 60), named("Antichrist", 20)]);
+  await rec.recordArmory({ ...member("The", 60, "warlock"), surname: "Bonelord" } as Member, info({ level: 60, race: "Undead" }));
+  assert.deepEqual(store.snapshots().map((s) => [s.name, s.level, s.race]), [["The Antichrist", 20, null], ["The Bonelord", 60, "Undead"]]);
+  assert.deepEqual(store.milestones().map((m) => [m.name, m.kind, m.key]), [["The Bonelord", "level", "60"]]);
+  assert.deepEqual(posts, []);
+});

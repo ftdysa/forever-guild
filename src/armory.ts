@@ -441,21 +441,27 @@ export class ArmoryService {
 
   // Profile API path for a character, or null when Forever's guild roster doesn't know the name.
   // Forever has no realms: characters are addressed by a name-surname slug only the roster gives us,
-  // so lookups are limited to guild members.
-  private async characterPath(lower: string): Promise<string | null> {
+  // so lookups are limited to guild members. Forever first names aren't unique, so without a
+  // surname a name shared by several members is ambiguous (null) rather than guessed.
+  private async characterPath(name: string, surname: string | null): Promise<string | null> {
+    const lower = name.toLowerCase();
     if (this.cfg.realm) return `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
-    const slug = (await this.roster()).find((r) => r.name.toLowerCase() === lower)?.slug;
+    const matches = (await this.roster()).filter(
+      (r) => r.name.toLowerCase() === lower && (surname === null || r.surname?.toLowerCase() === surname.toLowerCase()),
+    );
+    const slug = matches.length === 1 ? matches[0].slug : null;
     return slug ? `/profile/wow/character/${encodeURIComponent(slug)}` : null;
   }
 
-  // `name` must already be validated as letters only.
+  // `name` and `surname` must already be validated as letters only. The surname is Forever's;
+  // realm flavours ignore it.
   //
   // A character's armory data only changes when they play: every character endpoint shares the
   // last-login time as Last-Modified. So after CHARACTER_FRESH_MS, one conditional summary request
   // decides: 304 keeps the cached entry (1 call instead of 5), 200 means they played and the
   // rest is refetched. If Blizzard is down, the cached entry is served.
-  async character(name: string): Promise<CharacterInfo | null> {
-    const base = await this.characterPath(name.toLowerCase());
+  async character(name: string, surname: string | null = null): Promise<CharacterInfo | null> {
+    const base = await this.characterPath(name, surname);
     if (!base) return null;
     // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements.
     const key = `${this.keyPrefix}:character:v7:${base}`;
