@@ -58,6 +58,7 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | PUT    | /api/members/:id   | edit details (`mainSpec`, `backupClass`, `backupSpec`, `sweatFactor`, `levelingPref`, `notes`) → 200 |
 | GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }`; `realm` is null on Forever |
 | GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown (on Forever: not in the guild), 502 Blizzard down |
+| GET    | /api/crafting      | recipe catalog + who knows each recipe (Forever only; 404 otherwise) |
 
 Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 429 / 500 / 502.
 
@@ -124,6 +125,26 @@ roster seeds it without posting. Edits and departures are not posted. Delivery
 is best-effort: if Discord is down the post is dropped.
 
 - The webhook URL is a secret. On Fly: `fly secrets set DISCORD_WEBHOOK_URL=...`.
+
+## Crafting directory
+
+On Forever, the Crafting tab lists every recipe in Alchemy, Blacksmithing,
+Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid and
+Mining (smelting), who in the guild knows it (with their skill), and its
+reagents. Search matches recipe, item and reagent names; "Nobody knows yet"
+shows the gaps.
+
+- Known recipes come from each member's armory professions, read by the
+  guild sync. Members below level 10 have no armory profile, so none show.
+- The recipe catalog (~2,500 recipes) is read from Blizzard's static data
+  8 calls at a time, stored in SQLite, and rebuilt when Blizzard's game build
+  changes (checked at startup and daily). A failed build keeps the old one.
+- To rebuild it by hand (rarely needed):
+
+  ```bash
+  npm run refresh-recipes                         # local, uses DB_PATH
+  fly ssh console -C "setpriv --reuid=node --regid=node --init-groups node dist/refresh-recipes.js"
+  ```
 
 ## Security notes
 
