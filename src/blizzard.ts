@@ -21,6 +21,10 @@ const WINDOW_MS = 1000;
 // Retries (shared budget) for 429s, transient 5xx and fetch rejections (network blip, timeout)
 // before giving up; each waits 1 s x attempt unless Retry-After says otherwise.
 const MAX_RETRIES = 3;
+// Retries absorb brief blips, but this budget (from the first attempt's start) keeps interactive
+// requests (roster sync on page load, armory dialog) from hanging past proxy timeouts during a
+// real outage. Background work (catalog build) is unaffected in practice: its calls are fast.
+const SEND_BUDGET_MS = 15_000;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const MAX_RETRY_AFTER_MS = 10_000;
 
@@ -34,9 +38,10 @@ export type Conditional<T> = { modified: false } | { modified: true; body: T | n
 
 // Error code or name for diagnosis only; never the message, URL or headers.
 function causeLabel(err: unknown): string {
-  const cause = (err as { cause?: { code?: unknown } } | null)?.cause;
-  const label = cause?.code ?? (err as { code?: unknown } | null)?.code ?? (err as { name?: unknown } | null)?.name;
-  return typeof label === "string" && /^[\w.-]{1,40}$/.test(label) ? label : "unknown";
+  const e = err as { cause?: { code?: unknown }; code?: unknown; name?: unknown } | null;
+  // DOMException.code is numeric, so take the first candidate that is a plain string.
+  const label = [e?.cause?.code, e?.code, e?.name].find((v) => typeof v === "string" && /^[\w.-]{1,40}$/.test(v));
+  return typeof label === "string" ? label : "unknown";
 }
 
 // Retry-After (seconds) when present and numeric, else 1s x attempt number.
@@ -120,6 +125,7 @@ export class BlizzardClient {
 
   // One API call, retrying 429s with backoff. Each attempt takes a rate-limit slot.
   private async send(url: string, token: string, headers: Record<string, string>): Promise<Response> {
+    const deadline = this.now() + SEND_BUDGET_MS;
     for (let attempt = 1; ; attempt++) {
       // Only yield when we actually have to wait, so a free slot goes straight to fetch.
       if (!this.tryTakeSlot()) await this.waitForSlot();
@@ -130,12 +136,19 @@ export class BlizzardClient {
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
       } catch (err) {
-        if (attempt > MAX_RETRIES) throw new BlizzardError(`blizzard api unreachable (${causeLabel(err)})`);
-        await this.sleep(1000 * attempt);
+        const label = causeLabel(err);
+        // A hung request already cost TIMEOUT_MS: retry a timeout at most once.
+        const delay = 1000 * attempt;
+        if (attempt > MAX_RETRIES || (label === "TimeoutError" && attempt > 1) || this.now() + delay >= deadline) {
+          throw new BlizzardError(`blizzard api unreachable (${label})`);
+        }
+        await this.sleep(delay);
         continue;
       }
       if (!RETRY_STATUSES.has(res.status) || attempt > MAX_RETRIES) return res;
-      await this.sleep(retryDelayMs(res, attempt));
+      const delay = retryDelayMs(res, attempt);
+      if (this.now() + delay >= deadline) return res;
+      await this.sleep(delay);
     }
   }
 

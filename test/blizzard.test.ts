@@ -183,3 +183,34 @@ test("a 503 is retried; a 404 is not", async () => {
   assert.equal(await new BlizzardClient(creds, g.fetchFn, () => 0, async () => {}).gameData("/a"), null);
   assert.equal(g.calls(), 1);
 });
+
+test("a timeout is retried once, then throws", async () => {
+  let clock = 0;
+  let apiCalls = 0;
+  const fetchFn: FetchFn = async (input) => {
+    if (isToken(input)) return Response.json({ access_token: "t", expires_in: 3600 });
+    apiCalls++;
+    clock += 10_000;
+    throw new DOMException("timed out", "TimeoutError");
+  };
+  const client = new BlizzardClient(creds, fetchFn, () => clock, async (ms) => void (clock += ms));
+  await assert.rejects(client.gameData("/a"), (e: unknown) => e instanceof BlizzardError && /unreachable \(TimeoutError\)/.test(e.message));
+  assert.equal(apiCalls, 2);
+});
+
+test("retries stop once the 15s per-request budget would be exceeded", async () => {
+  let clock = 0;
+  const f = scripted([() => new Response("", { status: 503, headers: { "retry-after": "10" } })]);
+  const client = new BlizzardClient(creds, f.fetchFn, () => clock, async (ms) => void (clock += ms));
+  await assert.rejects(client.gameData("/a"), /503/);
+  assert.ok(f.calls() <= 2, `calls ${f.calls()}`);
+  assert.ok(clock < 25_000, `elapsed ${clock}`);
+});
+
+test("a 5xx Retry-After is honoured", async () => {
+  const f = scripted([() => new Response("", { status: 503, headers: { "retry-after": "2" } }), () => Response.json({ ok: 1 })]);
+  const sleeps: number[] = [];
+  const client = new BlizzardClient(creds, f.fetchFn, () => 0, async (ms) => void sleeps.push(ms));
+  assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  assert.deepEqual(sleeps, [2000]);
+});
