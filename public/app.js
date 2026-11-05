@@ -13,6 +13,7 @@ let game = null; // { classes, professions, sweatFactors, levelingPrefs }
 let members = [];
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
 let sort = { key: "rank", dir: 1 }; // roster order; ties fall back to name
+const classFilter = new Set(); // class ids shown in the roster table; empty = all
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -52,6 +53,7 @@ function lastSeen(iso) {
 // Sort keys for the roster; missing values sort last whichever way.
 const SORT_VALUES = {
   name: (m) => fullName(m).toLowerCase(),
+  class: (m) => `${classById(m.mainClass)?.name ?? m.mainClass} ${specOf(m.mainClass, m.mainSpec)?.name ?? "~"}`.toLowerCase(),
   rank: (m) => m.guildRank,
   level: (m) => -m.level,
   ilvl: (m) => (m.armory?.itemLevel == null ? null : -m.armory.itemLevel),
@@ -131,22 +133,71 @@ function paintClasses(root) {
 const titleCase = (slug) => slug.replace(/(^|-)(\w)/g, (_, sep, ch) => (sep ? " " : "") + ch.toUpperCase());
 
 // ---------- Render ----------
-function renderCoverage() {
-  const roles = { tank: 0, healer: 0, dps: 0 };
-  for (const m of members) {
-    const s = specOf(m.mainClass, m.mainSpec);
-    if (s) roles[s.role]++;
-  }
-  $("#role-coverage").innerHTML = Object.keys(roles)
-    .map((r) => `<span class="stat">${ICONS[r]}${ROLE_LABEL[r]} <b>${roles[r]}</b></span>`)
-    .join("");
+// Role colours: the first three slots of the validated categorical palette (dark steps,
+// checked against the panel surface). "Spec unknown" is a neutral, not a fourth hue.
+const ROLE_COLORS = { tank: "#3987e5", healer: "#199e70", dps: "#d95926" };
+const UNKNOWN_COLOR = "#5c5446";
+// One hue for the ranked profession bars (validated on the panel surface).
+const PROF_COLOR = "#c98500";
 
-  const profs = {};
-  for (const p of primaries()) profs[p.id] = 0;
-  for (const m of members) for (const p of m.primaryProfessions) if (p in profs) profs[p]++;
-  $("#prof-coverage").innerHTML = primaries()
-    .map((p) => `<span class="stat">${esc(p.name)} <b>${profs[p.id]}</b></span>`)
+// SVG pie on a unit circle. Slices are separated by a stroke in the panel colour (the 2px gap).
+function pieSlices(parts) {
+  const total = parts.reduce((n, p) => n + p.value, 0);
+  if (!total) return '<circle r="0.98" class="pie-empty" />';
+  let angle = -Math.PI / 2;
+  return parts
+    .filter((p) => p.value > 0)
+    .map((p) => {
+      const label = `${p.label}: ${p.value} (${Math.round((p.value / total) * 100)}%)`;
+      const attrs = `class="slice" fill="${p.color}" tabindex="0" aria-label="${esc(label)}"`;
+      if (p.value === total) return `<circle r="0.98" ${attrs}><title>${esc(label)}</title></circle>`;
+      const start = angle;
+      angle += (p.value / total) * Math.PI * 2;
+      const [x1, y1, x2, y2] = [Math.cos(start), Math.sin(start), Math.cos(angle), Math.sin(angle)].map((v) => (v * 0.98).toFixed(4));
+      const large = angle - start > Math.PI ? 1 : 0;
+      return `<path d="M0 0 L${x1} ${y1} A0.98 0.98 0 ${large} 1 ${x2} ${y2} Z" ${attrs}><title>${esc(label)}</title></path>`;
+    })
     .join("");
+}
+
+function renderCoverage() {
+  const counts = { tank: 0, healer: 0, dps: 0, unknown: 0 };
+  for (const m of members) counts[specOf(m.mainClass, m.mainSpec)?.role ?? "unknown"]++;
+  const parts = [
+    ...Object.keys(ROLE_COLORS).map((r) => ({ key: r, label: ROLE_LABEL[r], value: counts[r], color: ROLE_COLORS[r] })),
+    { key: "unknown", label: "Spec unknown", value: counts.unknown, color: UNKNOWN_COLOR },
+  ].filter((p) => p.key !== "unknown" || p.value > 0);
+  const total = members.length;
+  $("#role-pie").innerHTML = `<title id="role-pie-title">Main roles</title>${pieSlices(parts)}`;
+  $("#role-legend").innerHTML = parts
+    .map(
+      (p) => `<li><span class="swatch" data-color="${p.color}"></span><span class="role-icon">${ICONS[p.key] ?? ""}</span><span>${esc(p.label)}</span><b>${p.value}</b><span class="muted">${total ? Math.round((p.value / total) * 100) : 0}%</span></li>`,
+    )
+    .join("");
+  for (const sw of document.querySelectorAll("#role-legend .swatch")) sw.style.backgroundColor = sw.dataset.color;
+
+  // Ranked bars, largest first. Counts don't sum to the roster: members have two primaries.
+  const profs = primaries().map((p) => ({
+    p,
+    who: members.filter((m) => m.primaryProfessions.includes(p.id)).map(fullName),
+  }));
+  profs.sort((a, b) => b.who.length - a.who.length || a.p.name.localeCompare(b.p.name));
+  const max = Math.max(1, ...profs.map((x) => x.who.length));
+  const list = $("#prof-bars");
+  list.innerHTML = profs
+    .map(
+      ({ p, who }) => `
+    <li class="bar-row" tabindex="0" title="${esc(who.join(", ") || "Nobody yet")}" aria-label="${esc(p.name)}: ${who.length}">
+      <span class="bar-label">${esc(p.name)}</span>
+      <span class="bar-track">${who.length ? `<span class="bar-seg end" data-n="${who.length}"></span>` : ""}<span class="bar-value">${who.length}</span></span>
+    </li>`,
+    )
+    .join("");
+  for (const seg of list.querySelectorAll(".bar-seg")) {
+    const f = Number(seg.dataset.n) / max;
+    seg.style.width = `calc(${f * 100}% - ${f * BAR_VALUE_ROOM_EM}em)`;
+    seg.style.backgroundColor = PROF_COLOR;
+  }
 }
 
 const fullName = (m) => (m.surname ? `${m.characterName} ${m.surname}` : m.characterName);
@@ -235,6 +286,22 @@ function renderClassOverview() {
   paintClasses(grid);
 }
 
+// Class toggles above the roster table, each showing how many members play it.
+function renderClassFilter() {
+  const bar = $("#class-filter");
+  const counts = Object.fromEntries(game.classes.map((c) => [c.id, members.filter((m) => m.mainClass === c.id).length]));
+  bar.innerHTML =
+    `<button type="button" class="chip" data-class-filter="" aria-pressed="${classFilter.size === 0}">All <b>${members.length}</b></button>` +
+    game.classes
+      .filter((c) => counts[c.id] > 0)
+      .map(
+        (c) =>
+          `<button type="button" class="chip" data-class-filter="${esc(c.id)}" aria-pressed="${classFilter.has(c.id)}"><span class="cls" data-class="${esc(c.id)}">${esc(c.name)}</span> <b>${counts[c.id]}</b></button>`,
+      )
+      .join("");
+  paintClasses(bar);
+}
+
 function renderRoster() {
   const body = $("#roster-body");
   $("#empty-msg").classList.toggle("hidden", members.length > 0);
@@ -243,7 +310,10 @@ function renderRoster() {
     th.classList.toggle("active", th.dataset.sort === sort.key);
     th.dataset.dir = sort.dir > 0 ? "asc" : "desc";
   }
-  body.innerHTML = sortedMembers()
+  const shown = sortedMembers().filter((m) => classFilter.size === 0 || classFilter.has(m.mainClass));
+  renderClassFilter();
+  $("#filter-empty").classList.toggle("hidden", members.length === 0 || shown.length > 0);
+  body.innerHTML = shown
     .map(
       (m) => `
     <tr data-id="${m.id}">
@@ -629,6 +699,16 @@ $("#roster-body").addEventListener("click", (e) => {
   const m = members.find((x) => x.id === id);
   if (!m) return;
   if (btn.dataset.action === "edit") openDrawer(m);
+});
+
+$("#class-filter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-class-filter]");
+  if (!btn) return;
+  const id = btn.dataset.classFilter;
+  if (!id) classFilter.clear();
+  else if (classFilter.has(id)) classFilter.delete(id);
+  else classFilter.add(id);
+  renderRoster();
 });
 
 $("#roster-table thead").addEventListener("click", (e) => {

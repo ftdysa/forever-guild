@@ -43,20 +43,33 @@
 
       <section class="panel coverage" aria-label="Coverage">
         <h2>Coverage</h2>
-        <div id="role-coverage" class="coverage-row"></div>
-        <div id="prof-coverage" class="coverage-row"></div>
+        <div class="coverage-charts">
+          <figure class="coverage-chart">
+            <figcaption>Main roles</figcaption>
+            <div class="pie-wrap">
+              <svg id="role-pie" class="pie" viewBox="-1 -1 2 2" role="img" aria-labelledby="role-pie-title"><title id="role-pie-title">Main roles</title></svg>
+              <ul id="role-legend" class="pie-legend"></ul>
+            </div>
+          </figure>
+          <figure class="coverage-chart">
+            <figcaption>Primary professions <span class="muted">(members can have two)</span></figcaption>
+            <ol id="prof-bars" class="bars prof-bars"></ol>
+          </figure>
+        </div>
       </section>
 
       <section id="roster-panel" class="panel" aria-label="Roster">
         <h2>Roster</h2>
         <p id="empty-msg" class="muted hidden">No guild members found yet.</p>
+        <div id="class-filter" class="filters" role="group" aria-label="Filter by class"></div>
+        <p id="filter-empty" class="muted hidden">No members play the selected classes.</p>
         <table id="roster-table" class="roster">
           <thead>
             <tr>
               <th><button type="button" class="sort" data-sort="name">Character</button></th>
               <th><button type="button" class="sort" data-sort="rank">Rank</button></th>
               <th><button type="button" class="sort" data-sort="level">Level</button></th>
-              <th>Main</th>
+              <th><button type="button" class="sort" data-sort="class">Main</button></th>
               <th>Backup</th>
               <th>Primaries</th>
               <th>Secondaries</th>
