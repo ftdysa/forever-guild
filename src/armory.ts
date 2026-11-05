@@ -3,7 +3,7 @@ import type { ArmoryCache } from "./db.js";
 import { BlizzardError, type BlizzardClient } from "./blizzard.js";
 import { mapLimit } from "./concurrency.js";
 import { CLASSES, findSpec, PROFESSIONS } from "./game-data.js";
-import type { AchievementMilestone, MilestoneDef } from "./milestones.js";
+import { skillKey, type AchievementMilestone, type MilestoneDef } from "./milestones.js";
 
 // Blizzard playable-class ids → our class ids (classes missing here are not in the game data).
 const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
@@ -351,8 +351,8 @@ export function legacyProgress(defs: LegacyDefs, raw: RawAchievements): { earned
   return { earned, total: defs.total };
 }
 
-// "Artisan <Profession>" uses the crafter noun, not the profession name.
-const ARTISAN: Record<string, string> = {
+// "Journeyman/Expert/Artisan <Profession>" use the crafter noun, not the profession name.
+const CRAFTER: Record<string, string> = {
   Alchemist: "alchemy",
   Blacksmith: "blacksmithing",
   Enchanter: "enchanting",
@@ -361,16 +361,20 @@ const ARTISAN: Record<string, string> = {
   Tailor: "tailoring",
 };
 
+// Skill tier each profession rank title proves.
+const RANK_TIER: Record<string, number> = { Journeyman: 150, Expert: 225, Artisan: 300 };
+
 // The milestone a Legacy achievement proves: "Master <Class>" (level 60 on that class),
-// "Artisan <Profession>" (300 skill) or "Rank <N>" (PvP rank N). null for anything else.
+// "Journeyman/Expert/Artisan <crafter>" (150/225/300 skill) or "Rank <N>" (PvP rank N). null for
+// anything else.
 export function milestoneOf(name: string): MilestoneDef | null {
   const master = /^Master (\w+)$/.exec(name);
   if (master) {
     const cls = CLASSES.find((c) => c.name === master[1]);
     return cls ? { kind: "level", key: "60", classId: cls.id } : null;
   }
-  const artisan = /^Artisan (\w+)$/.exec(name);
-  if (artisan && ARTISAN[artisan[1]]) return { kind: "skill", key: ARTISAN[artisan[1]], classId: null };
+  const craft = /^(\w+) (\w+)$/.exec(name);
+  if (craft && Object.hasOwn(RANK_TIER, craft[1]) && Object.hasOwn(CRAFTER, craft[2])) return { kind: "skill", key: skillKey(CRAFTER[craft[2]], RANK_TIER[craft[1]]), classId: null };
   const rank = /^Rank (\d+)$/.exec(name);
   const n = rank ? Number(rank[1]) : 0;
   return n >= 1 && n <= 14 ? { kind: "pvp_rank", key: String(n), classId: null } : null;
@@ -463,8 +467,8 @@ export class ArmoryService {
   async character(name: string, surname: string | null = null): Promise<CharacterInfo | null> {
     const base = await this.characterPath(name, surname);
     if (!base) return null;
-    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements.
-    const key = `${this.keyPrefix}:character:v7:${base}`;
+    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements; v8 tiered skill milestone keys.
+    const key = `${this.keyPrefix}:character:v8:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 
@@ -546,7 +550,8 @@ export class ArmoryService {
   // (Blizzard lists a copy per faction), every achievement category is read once a week and the
   // definitions are filtered by reward text. Static data, fetched in parallel.
   legacyAchievements(): Promise<LegacyDefs> {
-    return this.cached(`${this.keyPrefix}:legacy:v2`, LEGACY_TTL_MS, async () => {
+    // v3: Journeyman/Expert milestones and tiered skill keys.
+    return this.cached(`${this.keyPrefix}:legacy:v3`, LEGACY_TTL_MS, async () => {
       const index = await this.client.gameData<RawCategoryIndex>("/data/wow/achievement-category/index");
       const categories = await mapLimit(index?.categories ?? [], STATIC_CONCURRENCY, (c) =>
         this.client.gameData<RawCategory>(`/data/wow/achievement-category/${c.id}`),

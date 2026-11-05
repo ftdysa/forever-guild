@@ -1,8 +1,11 @@
 import type { CharacterInfo } from "./armory.js";
 import type { Member, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
-import { claimedFirsts, computeFirsts, detectMilestones, MAX_LEVEL } from "./milestones.js";
+import { bracketsFor, claimedFirsts, computeFirsts, crossingDay, detectMilestones } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
+
+const DAY_MS = 86_400_000;
+const FRESH_DAYS = 2;
 
 // History key for a character: Forever first names aren't unique, so the surname is part of it.
 export const progressName = (characterName: string, surname: string | null): string =>
@@ -43,22 +46,29 @@ export class ProgressRecorder {
     const today = this.store.get(name, day);
     if (!today) return;
 
-    const added = detectMilestones({
+    const state = { classId: m.mainClass, race: today.race, level: Math.max(m.level, c.level), skills: today.skills, pvpRank: today.pvpRank };
+    const input = {
       name,
-      state: { classId: m.mainClass, race: today.race, level: Math.max(m.level, c.level), skills: today.skills, pvpRank: today.pvpRank },
+      state,
       prior,
-      priorBelowLevel: this.store.latestBelowLevel(name, day, MAX_LEVEL),
+      // Per level/skill milestone met: the snapshots either side of when it was crossed.
+      brackets: bracketsFor(state, this.store.history(name), day),
       launchMember: this.store.firstDay(name) === this.store.trackingSince(),
       existing: this.store.milestonesFor(name),
       achievements: c.milestoneAchievements,
       lastLogin: c.lastLogin,
       now: new Date(nowMs).toISOString(),
-    }).filter((x) => this.store.addMilestone(x));
+    };
+    const before = computeFirsts(this.store.milestones());
+    const added = detectMilestones(input).filter((x) => this.store.addMilestone(x));
 
-    const observed = added.filter((x) => x.source === "observed");
+    // Only crossings first seen in the last two days are news; older ones (history re-read after
+    // a deploy, or a long armory outage) are recorded silently.
+    const freshFrom = utcDay(nowMs - FRESH_DAYS * DAY_MS);
+    const observed = added.filter((x) => x.source === "observed" && crossingDay(x, input) >= freshFrom);
     if (observed.length === 0) return;
     const firsts = computeFirsts(this.store.milestones());
-    const claiming = observed.map((x) => ({ x, claims: claimedFirsts(x, firsts) })).filter((e) => e.claims.length > 0);
+    const claiming = observed.map((x) => ({ x, claims: claimedFirsts(x, firsts, before) })).filter((e) => e.claims.length > 0);
     if (claiming.length === 0) return;
     for (const { x } of claiming) this.store.markAnnounced(x.name, x.kind, x.key);
     await this.notifier?.guildFirsts(

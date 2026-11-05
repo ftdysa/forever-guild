@@ -409,10 +409,10 @@ button.link:hover, button.link:focus-visible { outline: none; text-shadow: 0 0 1
 /* Mobile: table to cards */
 @media (max-width: 720px) {
   body { font-size: 16px; }
-  .roster thead { display: none; }
-  .roster tr { display: block; border: 1px solid var(--gold-dim); margin-bottom: 12px; padding: 8px; }
-  .roster td { display: block; border: 0; padding: 4px 0; }
-  .roster td::before {
+  .roster:not(.lb-table) thead { display: none; }
+  .roster:not(.lb-table) tr { display: block; border: 1px solid var(--gold-dim); margin-bottom: 12px; padding: 8px; }
+  .roster:not(.lb-table) td { display: block; border: 0; padding: 4px 0; }
+  .roster:not(.lb-table) td::before {
     content: attr(data-label);
     display: block;
     font-family: var(--font-head);
@@ -420,8 +420,8 @@ button.link:hover, button.link:focus-visible { outline: none; text-shadow: 0 0 1
     font-variant: small-caps;
     color: var(--gold);
   }
-  .roster td.actions { text-align: left; }
-  .roster td.actions::before { content: none; }
+  .roster:not(.lb-table) td.actions { text-align: left; }
+  .roster:not(.lb-table) td.actions::before { content: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -505,3 +505,32 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 .pvp-table td { vertical-align: middle; }
 .spark { width: 80px; height: 20px; }
 .spark path { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+
+/* Leaderboard */
+.lb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 16px; }
+.lb-panel { border: 1px solid var(--gold-dim); border-radius: 4px; padding: 8px 12px; background: #0f0d09; min-width: 0; }
+.lb-panel h3 { margin: 0 0 6px; font-size: 14px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
+.lb-wide { grid-column: 1 / -1; }
+.lb-scroll { overflow: auto; max-height: 320px; }
+.lb-list { margin: 0; padding-left: 22px; font-size: 14px; }
+.lb-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
+.lb-skill h4 { margin: 0 0 2px; font-family: var(--font-head); font-size: 13px; }
+.lb-table thead th { position: sticky; top: 0; background: #0f0d09; z-index: 1; }
+/* Standings stay a compact table on phones (not cards); the scroll box scrolls it sideways. */
+.lb-table th, .lb-table td { white-space: nowrap; }
+@media (max-width: 720px) {
+  .lb-table th, .lb-table td { padding: 4px 6px; }
+}
+.lb-panel .cls .member, .class-firsts .cls .member { color: inherit; }
+.firsts-scroll { overflow-x: auto; max-width: 100%; }
+/* Dark-theme scrollbars for the scrollable leaderboard and firsts tables. */
+.lb-scroll, .firsts-scroll { scrollbar-color: var(--gold-dim) transparent; }
+.class-firsts { width: 100%; min-width: 640px; table-layout: fixed; border-collapse: collapse; }
+.class-firsts th { text-align: left; padding: 6px 8px; font-size: 12px; font-variant: small-caps; color: var(--gold); border-bottom: 1px solid var(--gold-dim); }
+.class-firsts td { padding: 8px; border-bottom: 1px solid rgba(107, 90, 51, 0.35); vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.class-firsts th:first-child, .class-firsts td:first-child { width: 14%; }
+.class-firsts th:not(:first-child), .class-firsts td:not(:first-child) { width: 14.33%; }
+.class-firsts .member { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+@media (max-width: 700px) {
+  .lb-grid { grid-template-columns: 1fr; }
+}

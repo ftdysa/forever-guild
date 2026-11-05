@@ -54,14 +54,14 @@ export function rankTitle(rank, race) {
   return titles?.[rank - 1] ?? `Rank ${rank}`;
 }
 
+const LEVEL_KEYS = ["10", "20", "30", "40", "50", "60"];
+
 // Cards for the guild firsts board, grouped and ordered for display.
-export function firstsGroups(firsts, game) {
+export function firstsGroups(firsts) {
   const card = (id, title, c, extra = {}) => ({ id, title, holders: c.holders, atLaunch: c.atLaunch, ...extra });
   return [
-    { heading: "Level 60", cards: [card("overall", "First to 60", firsts.overall60)] },
-    { heading: "Classes", cards: game.classes.map((c) => card(`class-${c.id}`, c.name, firsts.byClass[c.id], { classId: c.id })) },
+    { heading: "Levels", cards: LEVEL_KEYS.map((l) => card(`level-${l}`, `Level ${l}`, firsts.byLevel[l])) },
     { heading: "Races", cards: Object.keys(firsts.byRace).sort().map((r) => card(`race-${r}`, r, firsts.byRace[r])) },
-    { heading: "Professions", cards: game.professions.map((p) => card(`skill-${p.id}`, `${p.name} 300`, firsts.bySkill[p.id])) },
     {
       heading: "PvP ranks",
       cards: Object.keys(firsts.byPvpRank)
@@ -70,6 +70,32 @@ export function firstsGroups(firsts, game) {
         .map((n) => card(`rank-${n}`, `Rank ${n}`, firsts.byPvpRank[String(n)], { rank: n })),
     },
   ];
+}
+
+// Classes (game order) by level: the first holder per cell, or null.
+export function classLevelTable(firsts, game) {
+  return {
+    levels: LEVEL_KEYS,
+    rows: game.classes.map((c) => ({
+      classId: c.id,
+      name: c.name,
+      cells: LEVEL_KEYS.map((l) => firsts.byClassLevel[c.id]?.[l]?.holders[0] ?? null),
+    })),
+  };
+}
+
+const SKILL_TIERS = ["75", "150", "225", "300"];
+
+// Professions (game order) by skill tier: the first holder per cell, or null.
+export function professionTierTable(firsts, game) {
+  return {
+    tiers: SKILL_TIERS,
+    rows: game.professions.map((p) => ({
+      professionId: p.id,
+      name: p.name,
+      cells: SKILL_TIERS.map((t) => firsts.bySkill[p.id]?.[t]?.holders[0] ?? null),
+    })),
+  };
 }
 
 const PVP_SORT = {
@@ -162,6 +188,28 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
     note.textContent = `Since ${data.trackingSince}. Top ${TOP} highlighted; hover any line for its name.`;
   }
 
+  // Leaderboard
+  const lb = data.leaderboard;
+  const nameCell = (name, cls) => `<span class="cls" data-class="${esc(cls)}">${who(name)}</span>`;
+  const empty = (msg) => `<p class="muted">${esc(msg)}</p>`;
+  const list = (rows, msg, item) => (rows.length ? `<ol class="lb-list">${rows.map((r) => `<li>${item(r)}</li>`).join("")}</ol>` : empty(msg));
+  const standings = lb.standings.length
+    ? `<div class="lb-scroll"><table class="roster lb-table"><thead><tr><th>#</th><th>Character</th><th>Class</th><th>Race</th><th>Level</th><th>+7d</th></tr></thead><tbody>${lb.standings
+        .map(
+          (r, i) => `<tr><td data-label="Rank">${i + 1}</td><td data-label="Character">${nameCell(r.name, r.class)}</td><td data-label="Class"><span class="cls" data-class="${esc(r.class)}">${esc(game.classes.find((c) => c.id === r.class)?.name ?? r.class)}</span></td><td data-label="Race">${esc(r.race)}</td><td data-label="Level">${esc(r.level)}</td><td data-label="+7d">${r.gained7d > 0 ? `+${esc(r.gained7d)}` : '<span class="muted">0</span>'}</td></tr>`,
+        )
+        .join("")}</tbody></table></div>`
+    : empty("No members tracked yet");
+  const skills = game.professions
+    .filter((p) => lb.skills[p.id]?.length)
+    .map((p) => `<div class="lb-skill"><h4>${esc(p.name)}</h4><ol class="lb-list">${lb.skills[p.id].map((r) => `<li>${nameCell(r.name, r.class)} <span class="muted">${esc(r.skill)}</span></li>`).join("")}</ol></div>`)
+    .join("");
+  root.querySelector("#leaderboard").innerHTML = `
+    <section class="lb-panel lb-wide"><h3>Level standings</h3>${standings}</section>
+    <section class="lb-panel"><h3>Fastest this week</h3>${list(lb.fastest, "No levels gained this week yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">+${esc(r.gained7d)} · level ${esc(r.level)}</span>`)}</section>
+    <section class="lb-panel"><h3>Most guild firsts</h3>${list(lb.mostFirsts, "No firsts claimed yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">${esc(r.count)}</span>`)}</section>
+    <section class="lb-panel lb-wide"><h3>Profession skill</h3>${skills ? `<div class="lb-skills">${skills}</div>` : empty("No profession skills recorded yet")}</section>`;
+
   // Guild firsts
   const holderLi = (h, rank) =>
     `<li>${who(h.name)}${rank ? ` <span class="muted">${esc(rankTitle(rank, data.series.find((s) => s.name.toLowerCase() === h.name.toLowerCase())?.race ?? null))}</span>` : ""} <span class="muted">· ${esc(fmtDate(h.reachedAt))}${h.source === "achievement" ? " · via achievement" : ""}</span></li>`;
@@ -170,9 +218,22 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
       ${c.holders.length ? `<ol class="first-holders">${c.holders.map((h) => holderLi(h, c.rank)).join("")}</ol>` : c.atLaunch.length ? "" : '<p class="muted">Unclaimed</p>'}
       ${c.atLaunch.length ? `<p class="muted small">Already there at launch: ${c.atLaunch.map((n) => esc(n)).join(", ")}</p>` : ""}
     </article>`;
-  root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts, game)
+  const classTable = () => {
+    const t = classLevelTable(data.firsts, game);
+    const cell = (h, classId) => (h ? nameCell(h.name, classId) : '<span class="muted">—</span>');
+    return `<section class="firsts-group"><h3>Class firsts</h3><div class="firsts-scroll"><table class="class-firsts"><thead><tr><th>Class</th>${t.levels.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${t.rows
+      .map((r) => `<tr><td><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h) => `<td title="${h ? esc(h.name) : ""}">${cell(h, r.classId)}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table></div></section>`;
+  };
+  const professionTable = () => {
+    const t = professionTierTable(data.firsts, game);
+    return `<section class="firsts-group"><h3>Profession firsts</h3><div class="firsts-scroll"><table class="class-firsts"><thead><tr><th>Profession</th>${t.tiers.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${t.rows
+      .map((r) => `<tr><td>${esc(r.name)}</td>${r.cells.map((h) => `<td title="${h ? esc(h.name) : ""}">${h ? nameCell(h.name, h.classId) : '<span class="muted">—</span>'}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table></div></section>`;
+  };
+  root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts)
     .filter((g) => g.cards.length)
-    .map((g) => `<section class="firsts-group"><h3>${esc(g.heading)}</h3><div class="firsts-grid">${g.cards.map(cardHtml).join("")}</div></section>`)
+    .map((g) => `<section class="firsts-group"><h3>${esc(g.heading)}</h3><div class="firsts-grid">${g.cards.map(cardHtml).join("")}</div></section>${g.heading === "Levels" ? classTable() + professionTable() : ""}`)
     .join("");
 
   // PvP tracker

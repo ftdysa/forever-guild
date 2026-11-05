@@ -40,6 +40,8 @@ test("progress reports stored history, flagging former members", async () => {
     const body = res.json();
     assert.equal(body.trackingSince, "2026-11-05");
     assert.deepEqual(body.series.map((s: { name: string; current: boolean }) => [s.name, s.current]), [["Gone", false], ["Grom Hellscream", true]]);
+    assert.deepEqual(Object.keys(body.leaderboard), ["standings", "fastest", "mostFirsts", "skills"]);
+    assert.deepEqual(body.leaderboard.standings.map((x: { name: string }) => x.name), ["Grom Hellscream"]);
     assert.deepEqual(body.links, { "grom hellscream": { characterName: "Grom", surname: "Hellscream" } });
   } finally {
     await app.close();
