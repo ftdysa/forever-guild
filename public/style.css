@@ -481,7 +481,9 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 .race-svg { width: 100%; height: auto; display: block; }
 .race-grid { stroke: rgba(107, 90, 51, 0.35); stroke-width: 1; }
 .race-axis { fill: var(--muted); font-size: 11px; }
-.race-line { fill: none; stroke: var(--gold-dim); stroke-width: 1; opacity: 0.45; }
+.race-line { fill: none; stroke-width: 1; opacity: 0.45; }
+/* Leaders keep their class-colour stroke attribute; CSS would override it. */
+.race-line:not(.leader) { stroke: var(--gold-dim); }
 .race-line.former { opacity: 0.2; stroke-dasharray: 3 3; }
 .race-line.leader { stroke-width: 2.5; opacity: 1; }
 .race-line:hover, .race-line:focus { stroke: var(--gold-hi); stroke-width: 3.5; opacity: 1; outline: none; }
