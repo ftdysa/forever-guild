@@ -4,6 +4,7 @@ import { ROSTER_TTL_MS, type ArmoryService, type CharacterInfo } from "./armory.
 import { BlizzardError } from "./blizzard.js";
 import type { Member, MemberArmory, MemberStore, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
+import type { ProgressRecorder } from "./progress.js";
 
 // Every member's spec and professions are re-read once per roster refresh. Character lookups are
 // cached and revalidated with one conditional call, so refreshing unchanged characters is cheap.
@@ -43,6 +44,7 @@ export class GuildSync {
     private notifier: DiscordNotifier | null,
     private log: FastifyBaseLogger,
     private now: () => number = Date.now,
+    private progress: ProgressRecorder | null = null,
   ) {}
 
   // Concurrent callers share one run. Rejects with BlizzardError when the roster can't be read.
@@ -63,6 +65,11 @@ export class GuildSync {
     // The first sync fills an empty table; announcing the whole guild would spam Discord.
     const seeding = this.store.list().length === 0;
     const added = this.store.syncRoster(roster);
+    try {
+      this.progress?.recordRoster(roster);
+    } catch (err) {
+      this.log.warn({ err }, "progress snapshot failed");
+    }
     this.background = this.background
       .then(() => this.afterSync(added, seeding))
       .catch((err: unknown) => this.log.error({ err }, "guild sync background work failed"));
@@ -84,7 +91,7 @@ export class GuildSync {
   private async enrich(m: Member): Promise<void> {
     try {
       // The full lookup (not just specs and professions) also warms the cache the armory dialog reads.
-      const c = await this.armory.character(m.characterName);
+      const c = await this.armory.character(m.characterName, m.surname);
       if (!c) return;
       this.store.applyArmory(m, {
         spec: c.spec?.specId ?? null,
@@ -92,6 +99,10 @@ export class GuildSync {
         primary: c.professions?.primary ?? m.primaryProfessions,
         secondary: c.professions?.secondary ?? m.secondaryProfessions,
         armory: snapshot(c),
+      });
+      // History must never break the roster refresh.
+      await this.progress?.recordArmory(m, c).catch((err: unknown) => {
+        this.log.warn({ character: m.characterName, err }, "progress recording failed");
       });
     } catch (err) {
       if (!(err instanceof BlizzardError)) throw err;

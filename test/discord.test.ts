@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { FastifyBaseLogger } from "fastify";
 import type { FetchFn } from "../src/blizzard.js";
 import type { Member } from "../src/db.js";
-import { buildJoinEmbed, DiscordNotifier } from "../src/discord.js";
+import { buildFirstsEmbed, buildJoinEmbed, DiscordNotifier, type FirstsWho } from "../src/discord.js";
 
 const thrall: Member = {
   id: 1,
@@ -106,4 +106,55 @@ test("notifier swallows non-2xx and network errors without logging the url", asy
     assert.deepEqual(warnings[0][0], expectedPayload);
     assert.equal(JSON.stringify(warnings).includes(HOOK), false);
   }
+});
+
+
+test("guild-firsts embed lists each claim and links to the Progress tab", () => {
+  const e = buildFirstsEmbed(
+    { name: "Thrall", surname: "Durotan", classId: "shaman" },
+    ["First to reach level 60", "First Orc to reach level 60"],
+    "2026-11-10T08:00:00.000Z",
+    "https://example.test/",
+  );
+  assert.equal(e.title, "Thrall Durotan claimed 2 guild firsts");
+  assert.equal(e.description, "🏆 First to reach level 60\n🏆 First Orc to reach level 60");
+  assert.equal(e.url, "https://example.test/#progress");
+  assert.equal(e.color, 0x0070dd);
+  assert.deepEqual(e.fields, []);
+  assert.equal(e.timestamp, "2026-11-10T08:00:00.000Z");
+  const one = buildFirstsEmbed({ name: "Grom", surname: null, classId: "warrior" }, ["First to reach PvP rank 1"], "2026-11-10T08:00:00.000Z");
+  assert.equal(one.title, "Grom claimed a guild first");
+  assert.equal("url" in one, false);
+});
+
+test("notifier posts guild firsts and swallows failures", async () => {
+  const calls: RequestInit[] = [];
+  const ok = (async (_url: string, init: RequestInit) => {
+    calls.push(init);
+    return new Response(null, { status: 204 });
+  }) as unknown as FetchFn;
+  const who = { name: "Grom", surname: null, classId: "warrior" };
+  await new DiscordNotifier({ webhookUrl: HOOK }, fakeLog().log, ok).guildFirsts(who, ["First to reach level 60"], "2026-11-10T08:00:00.000Z");
+  assert.deepEqual(JSON.parse(String(calls[0].body)).embeds, [buildFirstsEmbed(who, ["First to reach level 60"], "2026-11-10T08:00:00.000Z")]);
+  const boom = (async () => {
+    throw new Error("boom");
+  }) as unknown as FetchFn;
+  const { log, warnings } = fakeLog();
+  await new DiscordNotifier({ webhookUrl: HOOK }, log, boom).guildFirsts(who, ["x"], "2026-11-10T08:00:00.000Z");
+  assert.deepEqual(warnings[0][0], { error: "boom" });
+});
+
+test("embed builder errors are logged, never thrown", async () => {
+  const boom = { get mainClass(): string { throw new Error("boom"); } } as unknown as Member;
+  const badWho = { get name(): string { throw new Error("boom"); } } as unknown as FirstsWho;
+  let calls = 0;
+  const fetchFn = (async () => { calls++; return new Response(null, { status: 204 }); }) as FetchFn;
+  const { log, warnings } = fakeLog();
+  const notifier = new DiscordNotifier({ webhookUrl: HOOK }, log, fetchFn);
+  await notifier.memberJoined(boom);
+  await notifier.guildFirsts(badWho, ["x"], "2026-11-05T00:00:00.000Z");
+  assert.equal(calls, 0);
+  assert.equal(warnings.length, 2);
+  assert.deepEqual(warnings[0][0], { error: "boom" });
+  assert.ok(!JSON.stringify(warnings).includes(HOOK));
 });

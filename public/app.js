@@ -1,4 +1,5 @@
 import { renderCrafting } from "./crafting.js";
+import { renderProgress } from "./progress.js";
 import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -18,6 +19,8 @@ const classFilter = new Set(); // class ids shown in the roster table; empty = a
 let crafting = null; // /api/crafting body once ready
 let craftingPoll = null;
 const craftingState = { query: "", profession: "", mode: "known" };
+let progress = null; // /api/progress body
+const progressState = { classes: new Set(), pvpSort: { key: "rank", dir: -1 } };
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -207,10 +210,10 @@ function renderCoverage() {
 const fullName = (m) => (m.surname ? `${m.characterName} ${m.surname}` : m.characterName);
 
 // A member's full name, linked to the armory when it is enabled. Clicks are handled on #roster;
-// lookups go by first name, which is all the armory route accepts.
+// lookups go by first name plus surname, since Forever members can share a first name.
 function characterName(m, cls) {
   return armory
-    ? `<button class="${cls} link" data-action="armory" data-name="${esc(m.characterName)}" title="View armory">${esc(fullName(m))}</button>`
+    ? `<button class="${cls} link" data-action="armory" data-name="${esc(m.characterName)}" data-surname="${esc(m.surname ?? "")}" title="View armory">${esc(fullName(m))}</button>`
     : `<span class="${cls}">${esc(fullName(m))}</span>`;
 }
 
@@ -362,14 +365,16 @@ function showRoster() {
   $("#roster").classList.remove("hidden");
 }
 
-const TABS = ["roster", "classes", "crafting"];
+const TABS = ["roster", "classes", "crafting", "progress"];
 
 function applyTab() {
   const wanted = location.hash.slice(1);
-  const tab = TABS.includes(wanted) && !(wanted === "crafting" && $("#crafting-tab").classList.contains("hidden")) ? wanted : "roster";
+  const hiddenTab = TABS.includes(wanted) && document.querySelector(`.tab[data-tab="${wanted}"]`)?.classList.contains("hidden");
+  const tab = TABS.includes(wanted) && !hiddenTab ? wanted : "roster";
   $("#roster-panel").classList.toggle("hidden", tab !== "roster");
   $("#class-overview").classList.toggle("hidden", tab !== "classes");
   $("#crafting-panel").classList.toggle("hidden", tab !== "crafting");
+  $("#progress-panel").classList.toggle("hidden", tab !== "progress");
   for (const a of document.querySelectorAll(".tab")) {
     const on = a.dataset.tab === tab;
     a.classList.toggle("active", on);
@@ -377,6 +382,7 @@ function applyTab() {
     else a.removeAttribute("aria-current");
   }
   if (tab === "crafting") loadCrafting();
+  if (tab === "progress") loadProgress();
 }
 
 // ---------- Crafting ----------
@@ -407,6 +413,24 @@ async function loadCrafting() {
   crafting = r.data;
   $("#crafting-controls").classList.remove("hidden");
   drawCrafting();
+}
+
+// ---------- Progress ----------
+function drawProgress() {
+  if (!progress) return;
+  renderProgress($("#progress-panel"), progress, progressState, {
+    esc, characterName, paintClasses, game, today: new Date().toISOString().slice(0, 10),
+  });
+}
+
+async function loadProgress() {
+  if (progress) return drawProgress();
+  const r = await api("GET", "/api/progress");
+  if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
+  $("#progress-status").textContent = r.ok ? "" : "Progress could not be read. Try again shortly.";
+  if (!r.ok) return;
+  progress = r.data;
+  drawProgress();
 }
 
 // ---------- Drawer ----------
@@ -479,6 +503,8 @@ async function loadMembers() {
   renderRoster();
   showRoster();
   crafting = null;
+  progress = null;
+  if (armory && location.hash === "#progress") loadProgress();
   // Needs the armory status (Wowhead URL); initArmory reloads the tab once it arrives.
   if (armory && location.hash === "#crafting") loadCrafting();
   return true;
@@ -492,11 +518,14 @@ async function initArmory() {
   if (!armory) return;
   // The crafting directory needs Forever's recipe catalog.
   $("#crafting-tab").classList.toggle("hidden", armory.namespace !== "forever");
+  // Progress history is filled by the guild sync, which needs the armory.
+  $("#progress-tab").classList.remove("hidden");
   applyTab();
   renderRoster();
 }
 
-const fetchCharacter = (name) => api("GET", `/api/armory/character/${encodeURIComponent(name)}`);
+const fetchCharacter = (name, surname) =>
+  api("GET", `/api/armory/character/${encodeURIComponent(name)}${surname ? `?surname=${encodeURIComponent(surname)}` : ""}`);
 
 function armoryError(r, what) {
   if (r.status === 404) {
@@ -604,10 +633,11 @@ function renderStats(stats) {
     .join("");
 }
 
-async function openArmory(name) {
+async function openArmory(name, surname) {
   hideTip();
   armoryGear = [];
-  $("#armory-name").textContent = name;
+  const full = fullName({ characterName: name, surname });
+  $("#armory-name").textContent = full;
   $("#armory-name").style.color = "";
   for (const id of ["#armory-ilvl", "#armory-sub", "#armory-spec"]) $(id).textContent = "";
   $("#armory-crest").className = "crest hidden";
@@ -617,13 +647,13 @@ async function openArmory(name) {
   $("#armory-status").textContent = "Consulting the armory…";
   $("#armory").showModal();
 
-  const r = await fetchCharacter(name);
+  const r = await fetchCharacter(name, surname);
   if (r.status === 401) {
     $("#armory").close();
     return showGate("Your session expired. Enter the passphrase again.");
   }
   if (!r.ok) {
-    $("#armory-status").textContent = armoryError(r, name);
+    $("#armory-status").textContent = armoryError(r, full);
     return;
   }
   const c = r.data;
@@ -773,6 +803,25 @@ $("#crafting-mode").addEventListener("click", (e) => {
   drawCrafting();
 });
 
+$("#progress-class-filter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-progress-class]");
+  if (!btn) return;
+  const id = btn.dataset.progressClass;
+  if (!id) progressState.classes.clear();
+  else if (progressState.classes.has(id)) progressState.classes.delete(id);
+  else progressState.classes.add(id);
+  drawProgress();
+});
+$("#pvp-section thead").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-pvp-sort]");
+  if (!btn) return;
+  const key = btn.dataset.pvpSort;
+  progressState.pvpSort = key === progressState.pvpSort.key
+    ? { key, dir: -progressState.pvpSort.dir }
+    : { key, dir: key === "name" ? 1 : -1 };
+  drawProgress();
+});
+
 $("#roster-table thead").addEventListener("click", (e) => {
   const btn = e.target.closest("button.sort");
   if (!btn) return;
@@ -782,7 +831,7 @@ $("#roster-table thead").addEventListener("click", (e) => {
 
 $("#roster").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action='armory']");
-  if (btn) openArmory(btn.dataset.name);
+  if (btn) openArmory(btn.dataset.name, btn.dataset.surname || null);
 });
 window.addEventListener("hashchange", applyTab);
 const bars = $("#class-bars");

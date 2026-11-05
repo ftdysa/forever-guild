@@ -7,6 +7,8 @@ import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache, MemberStore, openDatabase, type Member } from "../src/db.js";
 import type { DiscordNotifier } from "../src/discord.js";
 import { GuildSync } from "../src/guild-sync.js";
+import { ProgressRecorder } from "../src/progress.js";
+import { ProgressStore } from "../src/progress-store.js";
 import { sessionCookieName } from "../src/routes/auth.js";
 import { fakeBlizzard, iconSearch } from "./fake-blizzard.js";
 
@@ -43,7 +45,7 @@ function routes() {
 const quietLog = { warn() {}, error() {} } as unknown as FastifyBaseLogger;
 const cfg = { region: "us", namespace: "forever", guild: "old-school" };
 
-function setup() {
+function setup(opts: { log?: FastifyBaseLogger; recorder?: ProgressRecorder } = {}) {
   let t = 1_000_000;
   const r = routes();
   const fake = fakeBlizzard(r);
@@ -51,10 +53,15 @@ function setup() {
   const store = new MemberStore(db);
   const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn, undefined, async () => {}), new ArmoryCache(db), cfg, () => t);
   const joined: Member[] = [];
-  const notifier = { memberJoined: async (m: Member) => void joined.push(m) } as unknown as DiscordNotifier;
-  const sync = new GuildSync(armory, store, notifier, quietLog, () => t);
+  const firsts: [string, string[]][] = [];
+  const notifier = {
+    memberJoined: async (m: Member) => void joined.push(m),
+    guildFirsts: async (who: { name: string }, claims: string[]) => void firsts.push([who.name, claims]),
+  } as unknown as DiscordNotifier;
+  const progress = new ProgressStore(db);
+  const sync = new GuildSync(armory, store, notifier, opts.log ?? quietLog, () => t, opts.recorder ?? new ProgressRecorder(progress, notifier, () => t));
   return {
-    r, fake, store, sync, joined,
+    r, fake, store, sync, joined, progress, firsts,
     advance: (ms: number) => (t += ms),
     roster: (rows: unknown[]) => (r[ROSTER] = { members: rows }),
   };
@@ -163,4 +170,64 @@ test("without Blizzard config there is no sync and the roster is empty", async (
   } finally {
     await app.close();
   }
+});
+test("progress: every sync snapshots the roster, and a level-60 ding on a later day is an announced guild first", async () => {
+  const { r, fake, sync, advance, roster, progress, firsts } = setup();
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(progress.snapshots().map((s) => [s.name, s.day, s.level]), [["Thrall", "1970-01-01", 20]]);
+  assert.deepEqual(progress.milestones(), []);
+
+  advance(24 * 60 * 60 * 1000);
+  const login = 86_400_000 + 500_000;
+  roster([rosterRow("Thrall", "thrall-durotan", 7, 60)]);
+  r[char("thrall-durotan")] = { name: "Thrall", surname: "Durotan", level: 60, character_class: { id: 7 }, race: { name: "Orc" }, last_login_timestamp: login };
+  fake.state.lastModified = "Tue, 15 Sep 2026 00:00:00 GMT"; // they played: the armory refetches
+  await sync.sync();
+  await sync.idle();
+
+  assert.deepEqual(progress.snapshots().map((s) => [s.day, s.level, s.race]), [["1970-01-01", 20, null], ["1970-01-02", 60, "Orc"]]);
+  assert.deepEqual(progress.milestones().map((m) => [m.name, m.kind, m.key, m.source, m.reachedAt]), [
+    ["Thrall", "level", "60", "observed", new Date(login).toISOString()],
+  ]);
+  assert.deepEqual(firsts, [["Thrall", ["First to reach level 60", "First Shaman to reach level 60", "First Orc to reach level 60"]]]);
+});
+
+test("progress failures are logged and never break the roster refresh or armory enrichment", async () => {
+  const warnings: string[] = [];
+  const log = { warn: (_o: unknown, msg: string) => void warnings.push(msg), error() {} } as unknown as FastifyBaseLogger;
+  const recorder = {
+    recordRoster: () => {
+      throw new Error("roster boom");
+    },
+    recordArmory: async () => {
+      throw new Error("armory boom");
+    },
+  } as unknown as ProgressRecorder;
+  const { store, sync } = setup({ log, recorder });
+  await sync.sync();
+  await sync.idle();
+  const [thrall] = store.list();
+  assert.deepEqual([thrall.characterName, thrall.level], ["Thrall", 20]);
+  assert.equal(thrall.mainSpec, "restoration");
+  assert.deepEqual(warnings, ["progress snapshot failed", "progress recording failed"]);
+});
+
+test("members sharing a first name sync as two characters, each with their own armory and history", async () => {
+  const { r, store, sync, progress } = setup();
+  const row = (surname: string, slug: string, level: number) => ({
+    character: { name: "The", surname, slug, level, playable_class: { id: 9 } },
+    rank: 4,
+  });
+  r[ROSTER] = { members: [row("Bonelord", "the-bonelord", 30), row("Antichrist", "the-antichrist", 25)] };
+  for (const [surname, slug, level] of [["Bonelord", "the-bonelord", 30], ["Antichrist", "the-antichrist", 25]] as const) {
+    r[char(slug)] = { name: "The", surname, level, character_class: { id: 9 }, race: { name: surname === "Bonelord" ? "Undead" : "Orc" } };
+  }
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(
+    store.list().map((m) => [m.characterName, m.surname, m.level, m.armory?.race]).sort(),
+    [["The", "Antichrist", 25, "Orc"], ["The", "Bonelord", 30, "Undead"]],
+  );
+  assert.deepEqual(progress.snapshots().map((s) => [s.name, s.level, s.race]), [["The Antichrist", 25, "Orc"], ["The Bonelord", 30, "Undead"]]);
 });

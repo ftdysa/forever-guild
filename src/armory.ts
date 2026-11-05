@@ -2,7 +2,8 @@ import type { BlizzardConfig } from "./config.js";
 import type { ArmoryCache } from "./db.js";
 import { BlizzardError, type BlizzardClient } from "./blizzard.js";
 import { mapLimit } from "./concurrency.js";
-import { findSpec, PROFESSIONS } from "./game-data.js";
+import { CLASSES, findSpec, PROFESSIONS } from "./game-data.js";
+import type { AchievementMilestone, MilestoneDef } from "./milestones.js";
 
 // Blizzard playable-class ids → our class ids (classes missing here are not in the game data).
 const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
@@ -120,6 +121,9 @@ export interface CharacterInfo {
   pvp: { rank: number; honorableKills: number } | null;
   // Forever only: Legacy challenges completed (account-wide) out of those that exist.
   legacy: { earned: number; total: number } | null;
+  // Forever only: completed level-60 / 300-skill / PvP-rank achievements (account-wide), for
+  // backfilling guild firsts. [] elsewhere or when the lookup fails.
+  milestoneAchievements: AchievementMilestone[];
   gear: GearItem[];
 }
 
@@ -337,12 +341,46 @@ export function mapReputations(raw: RawReputations | null): Reputation[] {
 export interface LegacyDefs {
   ids: number[];
   total: number;
+  // Legacy achievements that mark a guild-firsts milestone, by achievement id.
+  milestones: Record<number, MilestoneDef>;
 }
 
 export function legacyProgress(defs: LegacyDefs, raw: RawAchievements): { earned: number; total: number } {
   const legacy = new Set(defs.ids);
   const earned = (raw.achievements ?? []).filter((a) => a.completed_timestamp && legacy.has(a.id)).length;
   return { earned, total: defs.total };
+}
+
+// "Artisan <Profession>" uses the crafter noun, not the profession name.
+const ARTISAN: Record<string, string> = {
+  Alchemist: "alchemy",
+  Blacksmith: "blacksmithing",
+  Enchanter: "enchanting",
+  Engineer: "engineering",
+  Leatherworker: "leatherworking",
+  Tailor: "tailoring",
+};
+
+// The milestone a Legacy achievement proves: "Master <Class>" (level 60 on that class),
+// "Artisan <Profession>" (300 skill) or "Rank <N>" (PvP rank N). null for anything else.
+export function milestoneOf(name: string): MilestoneDef | null {
+  const master = /^Master (\w+)$/.exec(name);
+  if (master) {
+    const cls = CLASSES.find((c) => c.name === master[1]);
+    return cls ? { kind: "level", key: "60", classId: cls.id } : null;
+  }
+  const artisan = /^Artisan (\w+)$/.exec(name);
+  if (artisan && ARTISAN[artisan[1]]) return { kind: "skill", key: ARTISAN[artisan[1]], classId: null };
+  const rank = /^Rank (\d+)$/.exec(name);
+  const n = rank ? Number(rank[1]) : 0;
+  return n >= 1 && n <= 14 ? { kind: "pvp_rank", key: String(n), classId: null } : null;
+}
+
+export function achievedMilestones(defs: LegacyDefs, raw: RawAchievements): AchievementMilestone[] {
+  return (raw.achievements ?? []).flatMap((a) => {
+    const def = defs.milestones[a.id];
+    return def && a.completed_timestamp ? [{ ...def, completedAt: new Date(a.completed_timestamp).toISOString() }] : [];
+  });
 }
 
 // Only Blizzard's render CDN is allowed through, matching the page's CSP img-src.
@@ -403,24 +441,30 @@ export class ArmoryService {
 
   // Profile API path for a character, or null when Forever's guild roster doesn't know the name.
   // Forever has no realms: characters are addressed by a name-surname slug only the roster gives us,
-  // so lookups are limited to guild members.
-  private async characterPath(lower: string): Promise<string | null> {
+  // so lookups are limited to guild members. Forever first names aren't unique, so without a
+  // surname a name shared by several members is ambiguous (null) rather than guessed.
+  private async characterPath(name: string, surname: string | null): Promise<string | null> {
+    const lower = name.toLowerCase();
     if (this.cfg.realm) return `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
-    const slug = (await this.roster()).find((r) => r.name.toLowerCase() === lower)?.slug;
+    const matches = (await this.roster()).filter(
+      (r) => r.name.toLowerCase() === lower && (surname === null || r.surname?.toLowerCase() === surname.toLowerCase()),
+    );
+    const slug = matches.length === 1 ? matches[0].slug : null;
     return slug ? `/profile/wow/character/${encodeURIComponent(slug)}` : null;
   }
 
-  // `name` must already be validated as letters only.
+  // `name` and `surname` must already be validated as letters only. The surname is Forever's;
+  // realm flavours ignore it.
   //
   // A character's armory data only changes when they play: every character endpoint shares the
   // last-login time as Last-Modified. So after CHARACTER_FRESH_MS, one conditional summary request
   // decides: 304 keeps the cached entry (1 call instead of 5), 200 means they played and the
   // rest is refetched. If Blizzard is down, the cached entry is served.
-  async character(name: string): Promise<CharacterInfo | null> {
-    const base = await this.characterPath(name.toLowerCase());
+  async character(name: string, surname: string | null = null): Promise<CharacterInfo | null> {
+    const base = await this.characterPath(name, surname);
     if (!base) return null;
-    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes.
-    const key = `${this.keyPrefix}:character:v6:${base}`;
+    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements.
+    const key = `${this.keyPrefix}:character:v7:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 
@@ -485,6 +529,7 @@ export class ArmoryService {
       reputations: mapReputations(reputations),
       pvp: pvp ? { rank: pvp.pvp_rank ?? 0, honorableKills: pvp.honorable_kills ?? 0 } : null,
       legacy: legacyDefs && achievements ? legacyProgress(legacyDefs, achievements) : null,
+      milestoneAchievements: legacyDefs && achievements ? achievedMilestones(legacyDefs, achievements) : [],
       gear: items.map((i) => ({
         slot: i.slot.type,
         slotName: i.slot.name,
@@ -501,7 +546,7 @@ export class ArmoryService {
   // (Blizzard lists a copy per faction), every achievement category is read once a week and the
   // definitions are filtered by reward text. Static data, fetched in parallel.
   legacyAchievements(): Promise<LegacyDefs> {
-    return this.cached(`${this.keyPrefix}:legacy:v1`, LEGACY_TTL_MS, async () => {
+    return this.cached(`${this.keyPrefix}:legacy:v2`, LEGACY_TTL_MS, async () => {
       const index = await this.client.gameData<RawCategoryIndex>("/data/wow/achievement-category/index");
       const categories = await mapLimit(index?.categories ?? [], STATIC_CONCURRENCY, (c) =>
         this.client.gameData<RawCategory>(`/data/wow/achievement-category/${c.id}`),
@@ -509,8 +554,14 @@ export class ArmoryService {
       const ids = [...new Set(categories.flatMap((c) => (c?.achievements ?? []).map((a) => a.id)))];
       const defs = await mapLimit(ids, STATIC_CONCURRENCY, (id) => this.client.gameData<RawAchievement>(`/data/wow/achievement/${id}`));
       const legacy = defs.filter((d): d is RawAchievement => !!d && LEGACY_REWARD.test(d.reward_description ?? ""));
+      const milestones = Object.fromEntries(
+        legacy.flatMap((d) => {
+          const m = milestoneOf(d.name ?? "");
+          return m ? [[d.id, m]] : [];
+        }),
+      );
       // Faction copies share a name, so distinct names count the challenges a character can earn.
-      return { ids: legacy.map((d) => d.id), total: new Set(legacy.map((d) => d.name)).size };
+      return { ids: legacy.map((d) => d.id), total: new Set(legacy.map((d) => d.name)).size, milestones };
     });
   }
 

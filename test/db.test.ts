@@ -71,6 +71,60 @@ test("syncRoster picks up a changed surname", () => {
   assert.equal(store.get(m.id)?.surname, "Theramore");
 });
 
+const bonelord: RosterMember = { name: "The", surname: "Bonelord", slug: "the-bonelord", classId: "warlock", level: 30, rank: 4 };
+const antichrist: RosterMember = { name: "The", surname: "Antichrist", slug: "the-antichrist", classId: "priest", level: 25, rank: 4 };
+
+test("syncRoster tells members sharing a first name apart by surname", () => {
+  assert.equal(store.syncRoster([bonelord, antichrist]).length, 2);
+  const ids = store.list().map((m) => [m.surname, m.id]);
+  // matching ignores case
+  assert.deepEqual(store.syncRoster([{ ...bonelord, name: "THE", surname: "BONELORD", level: 31 }, antichrist]), []);
+  assert.deepEqual(store.syncRoster([bonelord, antichrist]), []);
+  assert.deepEqual(store.list().map((m) => [m.surname, m.id]), ids);
+  store.syncRoster([antichrist]);
+  assert.deepEqual(store.list().map((m) => [m.characterName, m.surname, m.id]), [["The", "Antichrist", ids.find(([s]) => s === "Antichrist")![1]]]);
+});
+
+test("syncRoster: a newcomer sharing a first name never takes over a leaver's row", () => {
+  store.syncRoster([bonelord, antichrist]);
+  const old = store.list().find((m) => m.surname === "Antichrist")!;
+  store.updateDetails(old.id, { ...details, notes: "antichrist's notes" });
+  const [newguy] = store.syncRoster([bonelord, { ...antichrist, surname: "Newguy", slug: "the-newguy" }]);
+  assert.equal(newguy.surname, "Newguy");
+  assert.notEqual(newguy.id, old.id);
+  assert.equal(newguy.notes, "");
+  assert.equal(store.get(old.id), undefined);
+});
+
+test("a members table with a unique first name is rebuilt once, keeping every row, id and column", () => {
+  const raw = openDatabase(":memory:");
+  raw.exec(`CREATE TABLE members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, character_name TEXT NOT NULL UNIQUE COLLATE NOCASE, surname TEXT,
+    main_class TEXT NOT NULL, main_spec TEXT, level INTEGER NOT NULL DEFAULT 0, guild_rank INTEGER NOT NULL DEFAULT 0,
+    backup_class TEXT, backup_spec TEXT, primary_professions TEXT NOT NULL DEFAULT '[]',
+    secondary_professions TEXT NOT NULL DEFAULT '[]', armory TEXT, sweat_factor TEXT, leveling_pref TEXT,
+    notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  raw.exec(`INSERT INTO members VALUES (7, 'The', 'Bonelord', 'warlock', 'affliction', 30, 4, 'priest', 'shadow',
+    '["tailoring"]', '["cooking"]', '${JSON.stringify(ARMORY)}', 'casual', 'solo', 'bones', '2026-01-01', '2026-01-02')`);
+  raw.exec(`INSERT INTO members (id, character_name, main_class, created_at, updated_at) VALUES (9, 'Gone', 'mage', 'x', 'x')`);
+  raw.exec("DELETE FROM members WHERE id = 9");
+  const before = raw.prepare("SELECT * FROM members").all();
+
+  const s = new MemberStore(raw);
+  assert.deepEqual(raw.prepare("SELECT * FROM members").all(), before);
+  assert.doesNotMatch(raw.prepare("SELECT sql FROM sqlite_master WHERE name = 'members'").pluck().get() as string, /UNIQUE/i);
+  new MemberStore(raw); // idempotent
+  assert.deepEqual(raw.prepare("SELECT * FROM members").all(), before);
+
+  const added = s.syncRoster([{ ...bonelord, level: 30 }, antichrist]);
+  assert.deepEqual(added.map((m) => m.surname), ["Antichrist"]);
+  // ids are never reused, even ones freed before the rebuild
+  assert.equal(added[0].id, 10);
+  const kept = s.get(7)!;
+  assert.deepEqual([kept.characterName, kept.surname, kept.notes, kept.armory], ["The", "Bonelord", "bones", ARMORY]);
+  raw.close();
+});
+
 test("a guild-sync table without surname gains the column, keeping rows", () => {
   const raw = openDatabase(":memory:");
   raw.exec(`CREATE TABLE members (

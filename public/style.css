@@ -475,3 +475,33 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 @media (max-width: 720px) {
   .craft-row { grid-template-columns: 1fr; }
 }
+
+/* Progress: level race */
+.race-chart { margin: 0 0 16px; }
+.race-svg { width: 100%; height: auto; display: block; }
+.race-grid { stroke: rgba(107, 90, 51, 0.35); stroke-width: 1; }
+.race-axis { fill: var(--muted); font-size: 11px; }
+.race-line { fill: none; stroke-width: 1; opacity: 0.45; }
+/* Leaders keep their class-colour stroke attribute; CSS would override it. */
+.race-line:not(.leader) { stroke: var(--gold-dim); }
+.race-line.former { opacity: 0.2; stroke-dasharray: 3 3; }
+.race-line.leader { stroke-width: 2.5; opacity: 1; }
+.race-line:hover, .race-line:focus { stroke: var(--gold-hi); stroke-width: 3.5; opacity: 1; outline: none; }
+.race-label { font-size: 12px; font-family: var(--font-head); }
+
+/* Progress: guild firsts */
+.firsts-group { margin: 12px 0 0; }
+.firsts-group h3 { margin: 0 0 6px; font-size: 14px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
+.firsts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.first-card { border: 1px solid var(--gold-dim); border-radius: 4px; padding: 8px 10px; background: #0f0d09; }
+.first-card h4 { margin: 0 0 4px; font-family: var(--font-head); font-size: 14px; }
+.first-holders { margin: 0; padding-left: 18px; font-size: 14px; }
+.first-holders li:first-child { color: var(--gold-hi); }
+.first-card p { margin: 0; }
+.small { font-size: 12px; }
+.member.former { font-style: italic; }
+
+/* Progress: PvP */
+.pvp-table td { vertical-align: middle; }
+.spark { width: 80px; height: 20px; }
+.spark path { fill: none; stroke: var(--gold); stroke-width: 1.5; }
