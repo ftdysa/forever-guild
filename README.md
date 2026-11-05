@@ -57,8 +57,9 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | GET    | /api/members       | syncs with the guild, then the roster sorted by name |
 | PUT    | /api/members/:id   | edit details (`mainSpec`, `backupClass`, `backupSpec`, `sweatFactor`, `levelingPref`, `notes`) → 200 |
 | GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }`; `realm` is null on Forever |
-| GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown (on Forever: not in the guild), 502 Blizzard down |
+| GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; optional `?surname=` (Forever: name + surname identify a character; an ambiguous first name without a surname is a 404); 404 unknown (on Forever: not in the guild), 502 Blizzard down |
 | GET    | /api/crafting      | recipe catalog + who knows each recipe (Forever only; 404 otherwise) |
+| GET    | /api/progress      | level history, guild firsts and PvP ranks (from stored snapshots; no Blizzard calls) |
 
 Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 429 / 500 / 502.
 
@@ -89,7 +90,8 @@ machine stops when idle, so syncs (and join announcements) wait for the next
 visit unless `min_machines_running = 1`.
 
 WoW Forever (`BLIZZARD_NAMESPACE=forever`) has no realms: characters are
-addressed as `name-surname`. The app looks the surname up in the guild roster,
+addressed as `name-surname`. Two members may share a first name; the roster, armory lookups and progress history tell them apart by surname.
+The app looks the surname up in the guild roster,
 so armory lookups only cover members of `BLIZZARD_GUILD`.
 
 - Calls go server-side with client credentials; the secret never reaches the browser.
@@ -148,6 +150,28 @@ shows the gaps.
 
   The CLI has its own rate limiter, separate from the server's, so run it when the server
   is not building the catalog (e.g. not right after a deploy) to stay under Blizzard's limit.
+
+## Progress: level race, guild firsts, PvP ranks
+
+The Progress tab charts every character's level over time (the top 10 in
+class colour), lists guild firsts (first to 60 overall, per class and per
+race; first to 300 in each profession; first to each PvP rank), and tracks
+current and highest PvP rank with honorable kills.
+
+- The guild sync writes one snapshot per character per UTC day (level from
+  the roster; race, PvP and skills from the armory, level 10+). Days when the
+  server is asleep have no snapshot; the chart joins the points around them.
+- A milestone crossed after tracking began is dated by the character's last
+  login. On Forever, members already past a milestone when tracking began are
+  dated from their Legacy achievements ("Master <Class>", "Artisan
+  <Profession>", "Rank N") when the character qualifies; otherwise they are
+  listed as "already there at launch". Those achievements are account-wide,
+  so such dates are marked "via achievement".
+- Characters who join already past a milestone don't take guild firsts.
+- History and firsts are kept when a member leaves (shown as former members).
+- With `DISCORD_WEBHOOK_URL` set, new guild firsts are announced. Firsts
+  found at launch or from achievements are not.
+- `reset-data` also clears progress history.
 
 ## Security notes
 
