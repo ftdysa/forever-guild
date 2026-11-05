@@ -40,6 +40,7 @@
         <a href="#" class="tab" data-tab="roster">Roster</a>
         <a href="#classes" class="tab" data-tab="classes">Classes</a>
         <a href="#crafting" id="crafting-tab" class="tab hidden" data-tab="crafting">Crafting</a>
+        <a href="#progress" id="progress-tab" class="tab hidden" data-tab="progress">Progress</a>
       </nav>
 
       <section class="panel coverage" aria-label="Coverage">
@@ -113,6 +114,32 @@
           </div>
         </div>
         <div id="crafting-results"></div>
+      </section>
+      <section id="progress-panel" class="panel hidden" aria-label="Progress">
+        <h2>Level Race</h2>
+        <p id="progress-status" class="muted" role="status"></p>
+        <div id="progress-class-filter" class="filters" role="group" aria-label="Filter by class"></div>
+        <figure class="race-chart">
+          <div id="race-chart"></div>
+          <figcaption id="race-note" class="muted"></figcaption>
+        </figure>
+        <h2>Guild Firsts</h2>
+        <div id="firsts"></div>
+        <div id="pvp-section" class="hidden">
+          <h2>PvP Ranks</h2>
+          <table class="roster pvp-table">
+            <thead>
+              <tr>
+                <th><button type="button" class="sort" data-pvp-sort="name">Character</button></th>
+                <th><button type="button" class="sort" data-pvp-sort="rank">Rank</button></th>
+                <th><button type="button" class="sort" data-pvp-sort="highest">Highest</button></th>
+                <th><button type="button" class="sort" data-pvp-sort="hk">Honorable Kills</button></th>
+                <th>History</th>
+              </tr>
+            </thead>
+            <tbody id="pvp-body"></tbody>
+          </table>
+        </div>
       </section>
     </section>
   </main>

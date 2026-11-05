@@ -1,4 +1,5 @@
 import { renderCrafting } from "./crafting.js";
+import { renderProgress } from "./progress.js";
 import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -18,6 +19,8 @@ const classFilter = new Set(); // class ids shown in the roster table; empty = a
 let crafting = null; // /api/crafting body once ready
 let craftingPoll = null;
 const craftingState = { query: "", profession: "", mode: "known" };
+let progress = null; // /api/progress body
+const progressState = { classes: new Set(), pvpSort: { key: "rank", dir: -1 } };
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -362,14 +365,16 @@ function showRoster() {
   $("#roster").classList.remove("hidden");
 }
 
-const TABS = ["roster", "classes", "crafting"];
+const TABS = ["roster", "classes", "crafting", "progress"];
 
 function applyTab() {
   const wanted = location.hash.slice(1);
-  const tab = TABS.includes(wanted) && !(wanted === "crafting" && $("#crafting-tab").classList.contains("hidden")) ? wanted : "roster";
+  const hiddenTab = document.querySelector(`.tab[data-tab="${wanted}"]`)?.classList.contains("hidden");
+  const tab = TABS.includes(wanted) && !hiddenTab ? wanted : "roster";
   $("#roster-panel").classList.toggle("hidden", tab !== "roster");
   $("#class-overview").classList.toggle("hidden", tab !== "classes");
   $("#crafting-panel").classList.toggle("hidden", tab !== "crafting");
+  $("#progress-panel").classList.toggle("hidden", tab !== "progress");
   for (const a of document.querySelectorAll(".tab")) {
     const on = a.dataset.tab === tab;
     a.classList.toggle("active", on);
@@ -377,6 +382,7 @@ function applyTab() {
     else a.removeAttribute("aria-current");
   }
   if (tab === "crafting") loadCrafting();
+  if (tab === "progress") loadProgress();
 }
 
 // ---------- Crafting ----------
@@ -407,6 +413,24 @@ async function loadCrafting() {
   crafting = r.data;
   $("#crafting-controls").classList.remove("hidden");
   drawCrafting();
+}
+
+// ---------- Progress ----------
+function drawProgress() {
+  if (!progress) return;
+  renderProgress($("#progress-panel"), progress, progressState, {
+    esc, characterName, paintClasses, game, today: new Date().toISOString().slice(0, 10),
+  });
+}
+
+async function loadProgress() {
+  if (progress) return drawProgress();
+  const r = await api("GET", "/api/progress");
+  if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
+  $("#progress-status").textContent = r.ok ? "" : "Progress could not be read. Try again shortly.";
+  if (!r.ok) return;
+  progress = r.data;
+  drawProgress();
 }
 
 // ---------- Drawer ----------
@@ -479,6 +503,8 @@ async function loadMembers() {
   renderRoster();
   showRoster();
   crafting = null;
+  progress = null;
+  if (armory && location.hash === "#progress") loadProgress();
   // Needs the armory status (Wowhead URL); initArmory reloads the tab once it arrives.
   if (armory && location.hash === "#crafting") loadCrafting();
   return true;
@@ -492,6 +518,8 @@ async function initArmory() {
   if (!armory) return;
   // The crafting directory needs Forever's recipe catalog.
   $("#crafting-tab").classList.toggle("hidden", armory.namespace !== "forever");
+  // Progress history is filled by the guild sync, which needs the armory.
+  $("#progress-tab").classList.remove("hidden");
   applyTab();
   renderRoster();
 }
@@ -771,6 +799,25 @@ $("#crafting-mode").addEventListener("click", (e) => {
   if (!btn) return;
   craftingState.mode = btn.dataset.mode;
   drawCrafting();
+});
+
+$("#progress-class-filter").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-progress-class]");
+  if (!btn) return;
+  const id = btn.dataset.progressClass;
+  if (!id) progressState.classes.clear();
+  else if (progressState.classes.has(id)) progressState.classes.delete(id);
+  else progressState.classes.add(id);
+  drawProgress();
+});
+$("#pvp-section thead").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-pvp-sort]");
+  if (!btn) return;
+  const key = btn.dataset.pvpSort;
+  progressState.pvpSort = key === progressState.pvpSort.key
+    ? { key, dir: -progressState.pvpSort.dir }
+    : { key, dir: key === "name" ? 1 : -1 };
+  drawProgress();
 });
 
 $("#roster-table thead").addEventListener("click", (e) => {
