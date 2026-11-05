@@ -12,7 +12,7 @@ const creds = { clientId: "id", clientSecret: "shh", region: "us", namespace: "c
 function setup(routes: Record<string, unknown> = characterFixture(), config: ConstructorParameters<typeof ArmoryService>[2] = cfg, cache = new ArmoryCache(new Database(":memory:"))) {
   let t = 1_000_000;
   const fake = fakeBlizzard(routes);
-  const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn);
+  const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn, undefined, async () => {});
   const armory = new ArmoryService(client, cache, config, () => t);
   return { fake, armory, cache, advance: (ms: number) => (t += ms) };
 }
@@ -42,9 +42,12 @@ test("inferSpec gives up on ties, empty builds, unknown trees, or unknown class"
 test("mapProfessions maps known names and drops the rest", () => {
   const raw = {
     primaries: [
-      { profession: { name: "Herbalism" }, tiers: [{ skill_points: 120, max_skill_points: 150 }] },
-      { profession: { name: "Inscription" } },
-      { profession: { name: "Alchemy" } },
+      {
+        profession: { name: "Herbalism" },
+        tiers: [{ skill_points: 120, max_skill_points: 150, known_recipes: [{ id: 2366 }] }],
+      },
+      { profession: { name: "Inscription" }, tiers: [{ known_recipes: [{ id: 999 }] }] },
+      { profession: { name: "Alchemy" }, tiers: [{ known_recipes: [{ id: 2329 }, { id: 2330 }] }] },
     ],
     secondaries: [{ profession: { name: "Cooking" } }, { profession: { name: "Archaeology" } }],
   };
@@ -52,6 +55,8 @@ test("mapProfessions maps known names and drops the rest", () => {
     primary: ["herbalism", "alchemy"],
     secondary: ["cooking"],
     skills: { herbalism: { skill: 120, max: 150 } },
+    // professions we don't track (Inscription) contribute no recipes
+    recipes: [2366, 2329, 2330],
   });
   assert.equal(mapProfessions(null), null);
 });
@@ -150,7 +155,7 @@ test("icon searches are batched 100 ids at a time", async () => {
     if (url.pathname === "/data/wow/search/media") batchSizes.push((url.searchParams.get("id") ?? "").split("||").length);
     return fake.fetchFn(input, init);
   };
-  const armory = new ArmoryService(new BlizzardClient(creds, counting), new ArmoryCache(new Database(":memory:")), cfg);
+  const armory = new ArmoryService(new BlizzardClient(creds, counting, undefined, async () => {}), new ArmoryCache(new Database(":memory:")), cfg);
   await armory.character("jaina");
   assert.deepEqual(batchSizes, [100, 50]);
 });
@@ -162,18 +167,19 @@ test("icon search failures degrade to null and fill in once Blizzard recovers", 
   const c = await armory.character("jaina");
   assert.equal(c?.gear[0].icon, null);
   assert.equal(c?.gear[0].name, "Frostfire Circlet");
+  assert.equal(searches(fake.calls), 4); // the 503 is retried 3 times
 
   // Character unchanged (304), but its blank icons are retried rather than cached forever.
   routes["/data/wow/search/media"] = iconSearch;
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.gear[0].icon, ICONS[22498]);
-  assert.equal(searches(fake.calls), 2);
+  assert.equal(searches(fake.calls), 5);
   assert.equal(profileCalls(fake.calls), 8);
 
   // Remaining blanks are items known to have no icon: no further searches.
   advance(20 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(searches(fake.calls), 2);
+  assert.equal(searches(fake.calls), 5);
 });
 
 test("mapStats picks the best crit and tolerates missing data", () => {
@@ -195,7 +201,7 @@ test("character professions are mapped where the endpoint exists (not Classic Er
   const routes = characterFixture();
   routes[`${BASE}/jaina/professions`] = { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] };
   const { armory } = setup(routes, { ...cfg, namespace: "retail" });
-  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
+  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [], skills: {}, recipes: [] });
 });
 
 test("Classic Era skips the professions call entirely", async () => {
@@ -309,7 +315,7 @@ test("forever resolves characters through the guild roster's slugs", async () =>
   const c = await armory.character("JAINA");
   assert.equal(c?.name, "Jaina");
   assert.equal(c?.surname, "Proudmoore");
-  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
+  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [], skills: {}, recipes: [] });
   assert.ok(fake.calls.includes(FOREVER));
 });
 

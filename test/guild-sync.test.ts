@@ -26,7 +26,10 @@ function routes() {
       specialization_groups: [{ is_active: true, specializations: [{ specialization_name: "Restoration", spent_points: 11 }] }],
     },
     [`${char("thrall-durotan")}/professions`]: {
-      primaries: [{ profession: { name: "Alchemy" } }, { profession: { name: "Herbalism" } }],
+      primaries: [
+        { profession: { name: "Alchemy" }, tiers: [{ skill_points: 60, max_skill_points: 75, known_recipes: [{ id: 2329 }] }] },
+        { profession: { name: "Herbalism" } },
+      ],
       secondaries: [{ profession: { name: "Cooking" } }],
     },
     [char("jaina-proudmoore")]: { name: "Jaina", level: 12, character_class: { id: 8 } },
@@ -46,7 +49,7 @@ function setup() {
   const fake = fakeBlizzard(r);
   const db = openDatabase(":memory:");
   const store = new MemberStore(db);
-  const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn), new ArmoryCache(db), cfg, () => t);
+  const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn, undefined, async () => {}), new ArmoryCache(db), cfg, () => t);
   const joined: Member[] = [];
   const notifier = { memberJoined: async (m: Member) => void joined.push(m) } as unknown as DiscordNotifier;
   const sync = new GuildSync(armory, store, notifier, quietLog, () => t);
@@ -68,7 +71,8 @@ test("the first sync seeds the roster silently and fills spec and professions fr
   assert.deepEqual(thrall.secondaryProfessions, ["cooking"]);
   // the armory snapshot is stored for the roster's extra columns
   assert.equal(thrall.armory?.lastLogin, null);
-  assert.deepEqual(thrall.armory?.skills, {});
+  assert.deepEqual(thrall.armory?.skills, { alchemy: { skill: 60, max: 75 } });
+  assert.deepEqual(thrall.armory?.recipes, [2329]);
   assert.deepEqual(joined, []);
 });
 
@@ -124,7 +128,7 @@ async function login(a: FastifyInstance) {
 
 test("GET /api/members syncs first", async () => {
   const fake = fakeBlizzard(routes());
-  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {}, syncEveryMs: 0 });
   await app.ready();
   try {
     const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
@@ -138,7 +142,7 @@ test("GET /api/members syncs first", async () => {
 test("GET /api/members still answers when Blizzard is down", async () => {
   const fake = fakeBlizzard(routes());
   fake.state.apiDown = true;
-  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {}, syncEveryMs: 0 });
   await app.ready();
   try {
     const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });

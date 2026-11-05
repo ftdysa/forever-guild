@@ -13,9 +13,11 @@
     "test": "NODE_ENV=test node --import tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "reset-data": "tsx src/reset-data.ts"
+    "reset-data": "tsx src/reset-data.ts",
+    "refresh-recipes": "tsx src/refresh-recipes.ts"
   },
   "dependencies": {
+    "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/helmet": "^13.2.0",
     "@fastify/rate-limit": "^10.3.0",

@@ -459,3 +459,19 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 .chip b { color: var(--muted); font-weight: normal; margin-left: 2px; }
 .chip[aria-pressed="true"] { border-color: var(--gold); background: var(--panel-2); }
 .chip:focus-visible { outline: 1px solid var(--gold-hi); }
+
+/* Crafting directory */
+#crafting-search { width: 100%; margin: 0 0 10px; }
+.craft-group { margin: 16px 0 0; }
+.craft-group h3 { margin: 0 0 6px; font-size: 14px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
+.craft-list { list-style: none; margin: 0; padding: 0; }
+.craft-row {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 4px 16px;
+  padding: 8px 6px; border-bottom: 1px solid rgba(107, 90, 51, 0.4);
+}
+.craft-name a, .craft-reagents a { color: var(--text); }
+.craft-reagents { font-size: 0.9em; }
+.craft-reagents mark { background: rgba(201, 133, 0, 0.25); color: inherit; padding: 0 2px; }
+@media (max-width: 720px) {
+  .craft-row { grid-template-columns: 1fr; }
+}

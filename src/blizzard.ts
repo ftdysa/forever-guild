@@ -14,6 +14,21 @@ const TOKEN_URL = "https://oauth.battle.net/token";
 const TIMEOUT_MS = 10_000;
 // Refresh a little early so a token never expires mid-request.
 const TOKEN_MARGIN_MS = 60_000;
+// Blizzard limits clients to 100 requests/second (and 36,000/hour). We cap at half that so
+// parallel work (catalog build, guild sync, armory dialog) has headroom for latency jitter.
+const MAX_PER_SECOND = 50;
+const WINDOW_MS = 1000;
+// Retries (shared budget) for 429s, transient 5xx and fetch rejections (network blip, timeout)
+// before giving up; each waits 1 s x attempt unless Retry-After says otherwise.
+const MAX_RETRIES = 3;
+// Retries absorb brief blips, but this budget (from the first attempt's start) keeps interactive
+// requests (roster sync on page load, armory dialog) from hanging past proxy timeouts during a
+// real outage. Background work (catalog build) is unaffected in practice: its calls are fast.
+const SEND_BUDGET_MS = 15_000;
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRY_AFTER_MS = 10_000;
+
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "namespace">;
 
@@ -21,15 +36,33 @@ type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "name
 // with its Last-Modified for the next check.
 export type Conditional<T> = { modified: false } | { modified: true; body: T | null; lastModified: string | null };
 
+// Error code or name for diagnosis only; never the message, URL or headers.
+function causeLabel(err: unknown): string {
+  const e = err as { cause?: { code?: unknown }; code?: unknown; name?: unknown } | null;
+  // DOMException.code is numeric, so take the first candidate that is a plain string.
+  const label = [e?.cause?.code, e?.code, e?.name].find((v) => typeof v === "string" && /^[\w.-]{1,40}$/.test(v));
+  return typeof label === "string" ? label : "unknown";
+}
+
+// Retry-After (seconds) when present and numeric, else 1s x attempt number.
+function retryDelayMs(res: Response, attempt: number): number {
+  const header = res.headers.get("retry-after");
+  const seconds = header !== null && header.trim() !== "" ? Number(header) : NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, MAX_RETRY_AFTER_MS) : 1000 * attempt;
+}
+
 // Client-credentials Battle.net client for the WoW Profile API. Server-side only.
 export class BlizzardClient {
   private token: { value: string; expiresAt: number } | null = null;
   private pendingToken: Promise<string> | null = null;
+  // Start times of API requests in the last WINDOW_MS (oldest first).
+  private recentStarts: number[] = [];
 
   constructor(
     private creds: Creds,
     private fetchFn: FetchFn = fetch,
     private now: () => number = Date.now,
+    private sleep: (ms: number) => Promise<void> = realSleep,
   ) {}
 
   get profileNamespace(): string {
@@ -90,14 +123,51 @@ export class BlizzardClient {
     return res;
   }
 
+  // One API call, retrying 429s with backoff. Each attempt takes a rate-limit slot.
   private async send(url: string, token: string, headers: Record<string, string>): Promise<Response> {
-    try {
-      return await this.fetchFn(url, {
-        headers: { ...headers, authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch {
-      throw new BlizzardError("blizzard api unreachable");
+    const deadline = this.now() + SEND_BUDGET_MS;
+    for (let attempt = 1; ; attempt++) {
+      // Only yield when we actually have to wait, so a free slot goes straight to fetch.
+      if (!this.tryTakeSlot()) await this.waitForSlot();
+      // A slot wait can eat the budget: don't start an attempt past the deadline.
+      if (this.now() >= deadline) throw new BlizzardError("blizzard api unreachable (budget)");
+      let res: Response;
+      try {
+        res = await this.fetchFn(url, {
+          headers: { ...headers, authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(Math.max(1, Math.min(TIMEOUT_MS, deadline - this.now()))),
+        });
+      } catch (err) {
+        const label = causeLabel(err);
+        // A hung request already cost TIMEOUT_MS: retry a timeout at most once.
+        const delay = 1000 * attempt;
+        if (attempt > MAX_RETRIES || (label === "TimeoutError" && attempt > 1) || this.now() + delay >= deadline) {
+          throw new BlizzardError(`blizzard api unreachable (${label})`);
+        }
+        await this.sleep(delay);
+        continue;
+      }
+      if (!RETRY_STATUSES.has(res.status) || attempt > MAX_RETRIES) return res;
+      const delay = retryDelayMs(res, attempt);
+      if (this.now() + delay >= deadline) return res;
+      await this.sleep(delay);
+    }
+  }
+
+  // Claim a slot if fewer than MAX_PER_SECOND requests started in the last second. Check and
+  // claim happen in one synchronous step, so concurrent callers can't all pass the check.
+  private tryTakeSlot(): boolean {
+    const now = this.now();
+    while (this.recentStarts.length > 0 && this.recentStarts[0] <= now - WINDOW_MS) this.recentStarts.shift();
+    if (this.recentStarts.length >= MAX_PER_SECOND) return false;
+    this.recentStarts.push(now);
+    return true;
+  }
+
+  // Sleep until the oldest start leaves the window, then claim a slot (woken waiters re-check).
+  private async waitForSlot(): Promise<void> {
+    while (!this.tryTakeSlot()) {
+      await this.sleep(Math.max(1, this.recentStarts[0] + WINDOW_MS - this.now()));
     }
   }
 

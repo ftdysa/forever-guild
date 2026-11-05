@@ -18,6 +18,8 @@ export interface MemberArmory {
   // Forever only; account-wide.
   legacy: { earned: number; total: number } | null;
   skills: Professions["skills"];
+  // Known recipe ids (crafting directory).
+  recipes: number[];
 }
 
 export interface Member extends MemberDetails {
@@ -231,16 +233,24 @@ CREATE TABLE IF NOT EXISTS armory_cache (
 export class ArmoryCache {
   private find: Database.Statement;
   private upsert: Database.Statement;
+  private findTime: Database.Statement;
 
   constructor(db: Database.Database) {
     db.exec(CACHE_SCHEMA);
     this.find = db.prepare("SELECT body, fetched_at FROM armory_cache WHERE key = ?");
     this.upsert = db.prepare("INSERT OR REPLACE INTO armory_cache (key, body, fetched_at) VALUES (?, ?, ?)");
+    this.findTime = db.prepare("SELECT fetched_at FROM armory_cache WHERE key = ?");
   }
 
   get(key: string): { value: unknown; fetchedAt: number } | undefined {
     const row = this.find.get(key) as { body: string; fetched_at: number } | undefined;
     return row ? { value: JSON.parse(row.body), fetchedAt: row.fetched_at } : undefined;
+  }
+
+  // The entry's write time without parsing its body (cheap check for large entries).
+  fetchedAt(key: string): number | undefined {
+    const row = this.findTime.get(key) as { fetched_at: number } | undefined;
+    return row?.fetched_at;
   }
 
   set(key: string, value: unknown, now = Date.now()): void {

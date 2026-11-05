@@ -83,6 +83,8 @@ export interface Professions {
   secondary: string[];
   // Current and maximum skill by profession id.
   skills: Record<string, { skill: number; max: number }>;
+  // Known recipe ids across the professions above (crafting directory).
+  recipes: number[];
 }
 
 export interface Reputation {
@@ -226,7 +228,10 @@ interface RawMedia {
 interface RawMediaSearch {
   results?: { data?: RawMedia & { id?: number } }[];
 }
-type RawProfession = { profession: { name: string }; tiers?: { skill_points?: number; max_skill_points?: number }[] };
+type RawProfession = {
+  profession: { name: string };
+  tiers?: { skill_points?: number; max_skill_points?: number; known_recipes?: { id: number }[] }[];
+};
 export interface RawProfessions {
   primaries?: RawProfession[];
   secondaries?: RawProfession[];
@@ -301,6 +306,7 @@ export function inferSpec(classId: string | null, raw: RawSpecializations | null
 export function mapProfessions(raw: RawProfessions | null): CharacterInfo["professions"] {
   if (!raw) return null;
   const skills: Professions["skills"] = {};
+  const recipes: number[] = [];
   const pick = (list: RawProfession[] | undefined, kind: "primary" | "secondary") =>
     (list ?? []).flatMap((p) => {
       const id = PROFESSIONS.find((x) => x.kind === kind && x.name.toLowerCase() === p.profession.name.toLowerCase())?.id;
@@ -308,9 +314,15 @@ export function mapProfessions(raw: RawProfessions | null): CharacterInfo["profe
       // Classic-style professions have a single tier.
       const tier = p.tiers?.[0];
       if (tier?.skill_points !== undefined) skills[id] = { skill: tier.skill_points, max: tier.max_skill_points ?? tier.skill_points };
+      for (const r of tier?.known_recipes ?? []) recipes.push(r.id);
       return [id];
     });
-  return { primary: pick(raw.primaries, "primary").slice(0, 2), secondary: pick(raw.secondaries, "secondary"), skills };
+  return {
+    primary: pick(raw.primaries, "primary").slice(0, 2),
+    secondary: pick(raw.secondaries, "secondary"),
+    skills,
+    recipes,
+  };
 }
 
 export function mapReputations(raw: RawReputations | null): Reputation[] {
@@ -407,8 +419,8 @@ export class ArmoryService {
   async character(name: string): Promise<CharacterInfo | null> {
     const base = await this.characterPath(name.toLowerCase());
     if (!base) return null;
-    // Keyed by API path (realm or slug included). v4: path-based keys; entries carry Last-Modified.
-    const key = `${this.keyPrefix}:character:v5:${base}`;
+    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes.
+    const key = `${this.keyPrefix}:character:v6:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 

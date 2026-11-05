@@ -84,14 +84,27 @@ test("members routes require session", async () => {
 
 test("members can be listed and their details edited, but not created or deleted", async () => {
   const [thrall] = app.store.syncRoster([{ name: "Thrall", surname: "Durotan", slug: "thrall-durotan", classId: "shaman", level: 14, rank: 0 }]);
+  app.store.applyArmory(thrall, {
+    spec: null,
+    primary: [],
+    secondary: [],
+    armory: {
+      race: null, gender: null, faction: null, title: null, itemLevel: null, lastLogin: null,
+      achievementPoints: null, legacy: null, skills: {}, recipes: [2414],
+    },
+  });
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
   assert.equal(list.statusCode, 200);
   assert.deepEqual(list.json().map((m: { characterName: string }) => m.characterName), ["Thrall"]);
+  // recipe ids are for the crafting route only; the member list leaves them out
+  assert.ok(list.json()[0].armory);
+  assert.equal("recipes" in list.json()[0].armory, false);
 
   const updated = await app.inject({ method: "PUT", url: `/api/members/${thrall.id}`, cookies: cookie, payload: details });
   assert.equal(updated.statusCode, 200);
   assert.equal(updated.json().mainSpec, "restoration");
   assert.equal(updated.json().sweatFactor, "casual");
+  assert.equal("recipes" in updated.json().armory, false);
   // synced fields are not editable
   const ignored = await app.inject({
     method: "PUT",
