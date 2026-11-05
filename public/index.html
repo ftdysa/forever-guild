@@ -39,6 +39,7 @@
       <nav class="tabs" aria-label="Views">
         <a href="#" class="tab" data-tab="roster">Roster</a>
         <a href="#classes" class="tab" data-tab="classes">Classes</a>
+        <a href="#crafting" id="crafting-tab" class="tab hidden" data-tab="crafting">Crafting</a>
       </nav>
 
       <section class="panel coverage" aria-label="Coverage">
@@ -97,6 +98,21 @@
           <div id="bar-tip" class="bar-tip hidden" role="tooltip"></div>
         </figure>
         <div id="class-grid" class="class-grid"></div>
+      </section>
+
+      <section id="crafting-panel" class="panel hidden" aria-label="Crafting">
+        <h2>Crafting</h2>
+        <p id="crafting-status" class="muted" role="status"></p>
+        <div id="crafting-controls" class="hidden">
+          <input id="crafting-search" type="search" autocomplete="off" placeholder="Search recipes, items or reagents…" aria-label="Search recipes, items or reagents" />
+          <div id="crafting-profs" class="filters" role="group" aria-label="Filter by profession"></div>
+          <div id="crafting-mode" class="filters" role="group" aria-label="Show">
+            <button type="button" class="chip" data-mode="known" aria-pressed="true">Known in guild</button>
+            <button type="button" class="chip" data-mode="gaps" aria-pressed="false">Nobody knows yet</button>
+            <button type="button" class="chip" data-mode="all" aria-pressed="false">All</button>
+          </div>
+        </div>
+        <div id="crafting-results"></div>
       </section>
     </section>
   </main>

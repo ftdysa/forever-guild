@@ -1,3 +1,4 @@
+import { renderCrafting } from "./crafting.js";
 import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -14,6 +15,9 @@ let members = [];
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
 let sort = { key: "rank", dir: 1 }; // roster order; ties fall back to name
 const classFilter = new Set(); // class ids shown in the roster table; empty = all
+let crafting = null; // /api/crafting body once ready
+let craftingPoll = null;
+const craftingState = { query: "", profession: "", mode: "known" };
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -358,16 +362,49 @@ function showRoster() {
   $("#roster").classList.remove("hidden");
 }
 
+const TABS = ["roster", "classes", "crafting"];
+
 function applyTab() {
-  const tab = location.hash === "#classes" ? "classes" : "roster";
+  const wanted = location.hash.slice(1);
+  const tab = TABS.includes(wanted) && !(wanted === "crafting" && $("#crafting-tab").classList.contains("hidden")) ? wanted : "roster";
   $("#roster-panel").classList.toggle("hidden", tab !== "roster");
   $("#class-overview").classList.toggle("hidden", tab !== "classes");
+  $("#crafting-panel").classList.toggle("hidden", tab !== "crafting");
   for (const a of document.querySelectorAll(".tab")) {
     const on = a.dataset.tab === tab;
     a.classList.toggle("active", on);
     if (on) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
+  if (tab === "crafting") loadCrafting();
+}
+
+// ---------- Crafting ----------
+const itemUrl = (id) => armory.wowheadItemUrl + id;
+
+function drawCrafting() {
+  if (!crafting) return;
+  renderCrafting($("#crafting-panel"), crafting, craftingState, { esc, characterName, itemUrl });
+}
+
+async function loadCrafting() {
+  if (crafting) return drawCrafting();
+  clearTimeout(craftingPoll);
+  const r = await api("GET", "/api/crafting");
+  if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
+  const status = r.ok ? r.data.status : "unavailable";
+  $("#crafting-status").textContent =
+    status === "building" ? "Building the recipe catalog…" : status === "unavailable" ? "The recipe catalog is unavailable right now." : "";
+  if (status === "building") {
+    craftingPoll = setTimeout(() => {
+      if (location.hash === "#crafting") loadCrafting();
+    }, 5000);
+    return;
+  }
+  if (status !== "ready") return;
+  crafting = r.data;
+  $("#crafting-controls").classList.remove("hidden");
+  drawCrafting();
 }
 
 // ---------- Drawer ----------
@@ -439,6 +476,9 @@ async function loadMembers() {
   $("#empty-msg").textContent = "No guild members found yet.";
   renderRoster();
   showRoster();
+  crafting = null;
+  // Needs the armory status (Wowhead URL); initArmory reloads the tab once it arrives.
+  if (armory && location.hash === "#crafting") loadCrafting();
   return true;
 }
 
@@ -448,6 +488,9 @@ async function initArmory() {
   const r = await api("GET", "/api/armory/status");
   armory = r.ok && r.data?.enabled ? r.data : null;
   if (!armory) return;
+  // The crafting directory needs Forever's recipe catalog.
+  $("#crafting-tab").classList.toggle("hidden", armory.namespace !== "forever");
+  applyTab();
   renderRoster();
 }
 
@@ -709,6 +752,23 @@ $("#class-filter").addEventListener("click", (e) => {
   else if (classFilter.has(id)) classFilter.delete(id);
   else classFilter.add(id);
   renderRoster();
+});
+
+$("#crafting-search").addEventListener("input", (e) => {
+  craftingState.query = e.target.value;
+  drawCrafting();
+});
+$("#crafting-profs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-profession]");
+  if (!btn) return;
+  craftingState.profession = btn.dataset.profession;
+  drawCrafting();
+});
+$("#crafting-mode").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-mode]");
+  if (!btn) return;
+  craftingState.mode = btn.dataset.mode;
+  drawCrafting();
 });
 
 $("#roster-table thead").addEventListener("click", (e) => {
