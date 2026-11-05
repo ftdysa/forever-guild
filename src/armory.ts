@@ -1,6 +1,7 @@
 import type { BlizzardConfig } from "./config.js";
 import type { ArmoryCache } from "./db.js";
 import { BlizzardError, type BlizzardClient } from "./blizzard.js";
+import { mapLimit } from "./concurrency.js";
 import { findSpec, PROFESSIONS } from "./game-data.js";
 
 // Blizzard playable-class ids → our class ids (classes missing here are not in the game data).
@@ -22,6 +23,11 @@ export const ROSTER_TTL_MS = 15 * 60 * 1000;
 // Cached characters are served as-is for this long, then revalidated with one conditional
 // request (see character()). There is no hard expiry: unchanged characters stay cached.
 const CHARACTER_FRESH_MS = 15 * 60 * 1000;
+// Legacy challenge definitions (static game data) change only with patches.
+const LEGACY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const LEGACY_REWARD = /legacy point/i;
+// Parallel static lookups when discovering Legacy achievements.
+const STATIC_CONCURRENCY = 8;
 // Item icons effectively never change.
 const ICON_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // Blizzard's search API caps a page at 100 results; one OR-query fetches that many icons.
@@ -72,6 +78,20 @@ export interface ItemTooltip {
   description: string | null;
 }
 
+export interface Professions {
+  primary: string[];
+  secondary: string[];
+  // Current and maximum skill by profession id.
+  skills: Record<string, { skill: number; max: number }>;
+}
+
+export interface Reputation {
+  faction: string;
+  standing: string;
+  value: number;
+  max: number;
+}
+
 export interface CharacterInfo {
   name: string;
   // Forever only.
@@ -89,8 +109,15 @@ export interface CharacterInfo {
   stats: CharacterStats | null;
   // Spec inferred from where talent points are spent; a suggestion, not a fact.
   spec: { specId: string; points: Record<string, number> } | null;
+  gender: string | null;
+  title: string | null;
+  achievementPoints: number | null;
   // null when the realm's API has no professions endpoint (e.g. Classic Era).
-  professions: { primary: string[]; secondary: string[] } | null;
+  professions: Professions | null;
+  reputations: Reputation[];
+  pvp: { rank: number; honorableKills: number } | null;
+  // Forever only: Legacy challenges completed (account-wide) out of those that exist.
+  legacy: { earned: number; total: number } | null;
   gear: GearItem[];
 }
 
@@ -118,6 +145,30 @@ interface RawSummary {
   guild?: { name?: string };
   equipped_item_level?: number;
   last_login_timestamp?: number;
+  gender?: { name?: string };
+  active_title?: { name?: string };
+  achievement_points?: number;
+}
+interface RawReputations {
+  reputations?: { faction: { name: string }; standing: { name: string; value: number; max: number } }[];
+}
+interface RawPvpSummary {
+  pvp_rank?: number;
+  honorable_kills?: number;
+}
+interface RawAchievements {
+  achievements?: { id: number; completed_timestamp?: number }[];
+}
+interface RawCategoryIndex {
+  categories?: { id: number }[];
+}
+interface RawCategory {
+  achievements?: { id: number }[];
+}
+interface RawAchievement {
+  id: number;
+  name?: string;
+  reward_description?: string;
 }
 type Display = { display_string?: string };
 export interface RawItem {
@@ -175,9 +226,10 @@ interface RawMedia {
 interface RawMediaSearch {
   results?: { data?: RawMedia & { id?: number } }[];
 }
+type RawProfession = { profession: { name: string }; tiers?: { skill_points?: number; max_skill_points?: number }[] };
 export interface RawProfessions {
-  primaries?: { profession: { name: string } }[];
-  secondaries?: { profession: { name: string } }[];
+  primaries?: RawProfession[];
+  secondaries?: RawProfession[];
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
@@ -248,11 +300,37 @@ export function inferSpec(classId: string | null, raw: RawSpecializations | null
 // Maps Blizzard profession names onto our ids, dropping professions we don't track.
 export function mapProfessions(raw: RawProfessions | null): CharacterInfo["professions"] {
   if (!raw) return null;
-  const pick = (list: RawProfessions["primaries"], kind: "primary" | "secondary") =>
-    (list ?? [])
-      .map((p) => PROFESSIONS.find((x) => x.kind === kind && x.name.toLowerCase() === p.profession.name.toLowerCase())?.id)
-      .filter((id): id is string => id !== undefined);
-  return { primary: pick(raw.primaries, "primary").slice(0, 2), secondary: pick(raw.secondaries, "secondary") };
+  const skills: Professions["skills"] = {};
+  const pick = (list: RawProfession[] | undefined, kind: "primary" | "secondary") =>
+    (list ?? []).flatMap((p) => {
+      const id = PROFESSIONS.find((x) => x.kind === kind && x.name.toLowerCase() === p.profession.name.toLowerCase())?.id;
+      if (!id) return [];
+      // Classic-style professions have a single tier.
+      const tier = p.tiers?.[0];
+      if (tier?.skill_points !== undefined) skills[id] = { skill: tier.skill_points, max: tier.max_skill_points ?? tier.skill_points };
+      return [id];
+    });
+  return { primary: pick(raw.primaries, "primary").slice(0, 2), secondary: pick(raw.secondaries, "secondary"), skills };
+}
+
+export function mapReputations(raw: RawReputations | null): Reputation[] {
+  return (raw?.reputations ?? []).map((r) => ({
+    faction: r.faction.name,
+    standing: r.standing.name,
+    value: r.standing.value,
+    max: r.standing.max,
+  }));
+}
+
+export interface LegacyDefs {
+  ids: number[];
+  total: number;
+}
+
+export function legacyProgress(defs: LegacyDefs, raw: RawAchievements): { earned: number; total: number } {
+  const legacy = new Set(defs.ids);
+  const earned = (raw.achievements ?? []).filter((a) => a.completed_timestamp && legacy.has(a.id)).length;
+  return { earned, total: defs.total };
 }
 
 // Only Blizzard's render CDN is allowed through, matching the page's CSP img-src.
@@ -280,7 +358,7 @@ export class ArmoryService {
   constructor(
     private client: BlizzardClient,
     private cache: ArmoryCache,
-    private cfg: Pick<BlizzardConfig, "region" | "namespace" | "realm" | "guild">,
+    private cfg: Pick<BlizzardConfig, "region" | "namespace" | "realm" | "guild"> & Partial<Pick<BlizzardConfig, "ranks">>,
     private now: () => number = Date.now,
   ) {
     this.keyPrefix = `${cfg.region}:${cfg.namespace}`;
@@ -294,7 +372,8 @@ export class ArmoryService {
   roster(): Promise<RosterEntry[]> {
     const { realm, guild } = this.cfg;
     const path = realm ? `/data/wow/guild/${realm}/${guild}/roster` : `/data/wow/guild/${guild}/roster`;
-    return this.cached(`${this.keyPrefix}:roster:v2:${realm ?? ""}/${guild}`, ROSTER_TTL_MS, async () => {
+    // Bump the version whenever RosterEntry changes shape: the cache outlives deploys.
+    return this.cached(`${this.keyPrefix}:roster:v3:${realm ?? ""}/${guild}`, ROSTER_TTL_MS, async () => {
       const raw = await this.client.profile<RawRoster>(path);
       if (!raw) throw new BlizzardError("guild not found");
       return raw.members
@@ -329,7 +408,7 @@ export class ArmoryService {
     const base = await this.characterPath(name.toLowerCase());
     if (!base) return null;
     // Keyed by API path (realm or slug included). v4: path-based keys; entries carry Last-Modified.
-    const key = `${this.keyPrefix}:character:v4:${base}`;
+    const key = `${this.keyPrefix}:character:v5:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 
@@ -352,15 +431,23 @@ export class ArmoryService {
     }
   }
 
-  // Everything beyond the summary: four profile calls plus one icon search for uncached items.
+  // Everything beyond the summary, in one parallel round: up to eight profile calls plus one icon
+  // search for uncached items. They share the summary's Last-Modified, so an unchanged character
+  // skips the whole round (see character()).
   private async loadCharacter(base: string, summary: RawSummary): Promise<CharacterInfo> {
-    const [equipment, specs, media, professions, statistics] = await Promise.all([
+    const forever = this.cfg.namespace === "forever";
+    const [equipment, specs, media, professions, statistics, reputations, pvp, achievements, legacyDefs] = await Promise.all([
       this.client.profile<RawEquipment>(`${base}/equipment`),
       this.client.profile<RawSpecializations>(`${base}/specializations`),
       this.client.profile<RawMedia>(`${base}/character-media`),
       // Classic Era has no professions endpoint (always 404), so don't spend a call on it.
       this.cfg.namespace === "classic1x" ? null : this.client.profile<RawProfessions>(`${base}/professions`),
       this.client.profile<RawStatistics>(`${base}/statistics`),
+      this.client.profile<RawReputations>(`${base}/reputations`),
+      this.client.profile<RawPvpSummary>(`${base}/pvp-summary`),
+      // Legacy challenges are achievements, and exist only on Forever.
+      forever ? this.client.profile<RawAchievements>(`${base}/achievements`) : null,
+      forever ? this.legacyAchievements().catch(() => null) : null,
     ]);
     const classId = summary.character_class ? (CLASS_BY_BLIZZARD_ID[summary.character_class.id] ?? null) : null;
     const items = equipment?.equipped_items ?? [];
@@ -379,7 +466,13 @@ export class ArmoryService {
       faction: summary.faction?.type === "HORDE" ? "horde" : summary.faction?.type === "ALLIANCE" ? "alliance" : null,
       stats: mapStats(statistics),
       spec: inferSpec(classId, specs),
+      gender: summary.gender?.name ?? null,
+      title: summary.active_title?.name ?? null,
+      achievementPoints: summary.achievement_points ?? null,
       professions: mapProfessions(professions),
+      reputations: mapReputations(reputations),
+      pvp: pvp ? { rank: pvp.pvp_rank ?? 0, honorableKills: pvp.honorable_kills ?? 0 } : null,
+      legacy: legacyDefs && achievements ? legacyProgress(legacyDefs, achievements) : null,
       gear: items.map((i) => ({
         slot: i.slot.type,
         slotName: i.slot.name,
@@ -390,6 +483,23 @@ export class ArmoryService {
         tooltip: itemTooltip(i),
       })),
     };
+  }
+
+  // Legacy challenges are the achievements whose reward is a Legacy Point. Rather than hard-code ids
+  // (Blizzard lists a copy per faction), every achievement category is read once a week and the
+  // definitions are filtered by reward text. Static data, fetched in parallel.
+  legacyAchievements(): Promise<LegacyDefs> {
+    return this.cached(`${this.keyPrefix}:legacy:v1`, LEGACY_TTL_MS, async () => {
+      const index = await this.client.gameData<RawCategoryIndex>("/data/wow/achievement-category/index");
+      const categories = await mapLimit(index?.categories ?? [], STATIC_CONCURRENCY, (c) =>
+        this.client.gameData<RawCategory>(`/data/wow/achievement-category/${c.id}`),
+      );
+      const ids = [...new Set(categories.flatMap((c) => (c?.achievements ?? []).map((a) => a.id)))];
+      const defs = await mapLimit(ids, STATIC_CONCURRENCY, (id) => this.client.gameData<RawAchievement>(`/data/wow/achievement/${id}`));
+      const legacy = defs.filter((d): d is RawAchievement => !!d && LEGACY_REWARD.test(d.reward_description ?? ""));
+      // Faction copies share a name, so distinct names count the challenges a character can earn.
+      return { ids: legacy.map((d) => d.id), total: new Set(legacy.map((d) => d.name)).size };
+    });
   }
 
   // An unchanged character can stay cached indefinitely, so retry icons that an earlier failed

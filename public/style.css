@@ -424,3 +424,24 @@ button.link:hover, button.link:focus-visible { outline: none; text-shadow: 0 0 1
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Roster sorting */
+button.sort { all: unset; cursor: pointer; }
+button.sort:focus-visible { outline: 1px solid var(--gold); }
+button.sort.active::after { content: " ▲"; font-size: 0.7em; }
+button.sort.active[data-dir="desc"]::after { content: " ▼"; }
+.roster .sub { font-size: 12px; }
+
+/* Armory: progress, professions, reputations */
+.armory-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; padding: 12px 4px 4px; border-top: 1px solid var(--gold-dim); }
+.armory-extra h3 { margin: 0 0 8px; font-size: 14px; color: var(--gold); text-transform: uppercase; }
+.facts { margin: 0; display: grid; gap: 4px; }
+.facts div { display: flex; justify-content: space-between; gap: 8px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.meters { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meter { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 13px; }
+.meter-label { display: flex; justify-content: space-between; }
+.meter-track { height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; }
+.meter-fill { display: block; height: 100%; width: 0; background: var(--gold); }
+.meter-note { font-size: 11px; opacity: 0.75; }

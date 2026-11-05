@@ -12,6 +12,7 @@ const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
 let game = null; // { classes, professions, sweatFactors, levelingPrefs }
 let members = [];
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
+let sort = { key: "rank", dir: 1 }; // roster order; ties fall back to name
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -32,7 +33,46 @@ const specOf = (classId, specId) => classById(classId)?.specs.find((s) => s.id =
 const profName = (id) => game.professions.find((p) => p.id === id)?.name ?? id;
 const primaries = () => game.professions.filter((p) => p.kind === "primary");
 const DASH = '<span class="muted">—</span>';
-const profList = (ids) => (ids.length ? ids.map((p) => esc(profName(p))).join(", ") : DASH);
+// Profession names, with current skill when the armory reported it.
+function profList(ids, skills = {}) {
+  if (!ids.length) return DASH;
+  return ids.map((p) => `${esc(profName(p))}${skills[p] ? ` <span class="muted">${skills[p].skill}</span>` : ""}`).join(", ");
+}
+
+// Blizzard exposes rank numbers only; names come from GUILD_RANKS. Rank 0 is always the Guild Master.
+const rankName = (n) => armory?.ranks?.[n] ?? (n === 0 ? "Guild Master" : `Rank ${n}`);
+
+function lastSeen(iso) {
+  if (!iso) return DASH;
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+  const text = days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days} days ago` : new Date(iso).toLocaleDateString();
+  return `<span title="${esc(new Date(iso).toLocaleString())}">${esc(text)}</span>`;
+}
+
+// Sort keys for the roster; missing values sort last whichever way.
+const SORT_VALUES = {
+  name: (m) => fullName(m).toLowerCase(),
+  rank: (m) => m.guildRank,
+  level: (m) => -m.level,
+  ilvl: (m) => (m.armory?.itemLevel == null ? null : -m.armory.itemLevel),
+  legacy: (m) => (m.armory?.legacy ? -m.armory.legacy.earned : null),
+  seen: (m) => (m.armory?.lastLogin ? -Date.parse(m.armory.lastLogin) : null),
+};
+
+function sortedMembers() {
+  const value = SORT_VALUES[sort.key];
+  const byName = SORT_VALUES.name;
+  return [...members].sort((a, b) => {
+    const x = value(a);
+    const y = value(b);
+    if (x !== y) {
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return (x < y ? -1 : 1) * sort.dir;
+    }
+    return byName(a) < byName(b) ? -1 : byName(a) > byName(b) ? 1 : 0;
+  });
+}
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -199,16 +239,28 @@ function renderRoster() {
   const body = $("#roster-body");
   $("#empty-msg").classList.toggle("hidden", members.length > 0);
   $("#roster-table").classList.toggle("hidden", members.length === 0);
-  body.innerHTML = members
+  for (const th of document.querySelectorAll("button.sort")) {
+    th.classList.toggle("active", th.dataset.sort === sort.key);
+    th.dataset.dir = sort.dir > 0 ? "asc" : "desc";
+  }
+  body.innerHTML = sortedMembers()
     .map(
       (m) => `
     <tr data-id="${m.id}">
-      <td data-label="Character">${characterName(m, "name")}</td>
+      <td data-label="Character">${characterName(m, "name")}${
+        m.armory?.title || m.armory?.race
+          ? `<br><span class="muted sub">${esc([m.armory.title, m.armory.race].filter(Boolean).join(" · "))}</span>`
+          : ""
+      }</td>
+      <td data-label="Rank">${esc(rankName(m.guildRank))}</td>
       <td data-label="Level">${m.level}</td>
       <td data-label="Main">${classCell(m.mainClass, m.mainSpec)}</td>
       <td data-label="Backup">${classCell(m.backupClass, m.backupSpec)}</td>
-      <td data-label="Primaries">${profList(m.primaryProfessions)}</td>
-      <td data-label="Secondaries">${profList(m.secondaryProfessions)}</td>
+      <td data-label="Primaries">${profList(m.primaryProfessions, m.armory?.skills)}</td>
+      <td data-label="Secondaries">${profList(m.secondaryProfessions, m.armory?.skills)}</td>
+      <td data-label="iLvl">${m.armory?.itemLevel ?? DASH}</td>
+      <td data-label="Legacy">${m.armory?.legacy ? `${m.armory.legacy.earned}<span class="muted">/${m.armory.legacy.total}</span>` : DASH}</td>
+      <td data-label="Last Seen">${lastSeen(m.armory?.lastLogin)}</td>
       <td data-label="Sweat Factor">${sweatCell(m.sweatFactor)}</td>
       <td data-label="Leveling Pref">${levelingCell(m.levelingPref)}</td>
       <td data-label="Notes">${m.notes ? esc(m.notes) : DASH}</td>
@@ -254,8 +306,11 @@ function openDrawer(member) {
   const cls = classById(member.mainClass);
   $("#drawer-title").textContent = fullName(member);
   if (cls) $("#drawer-title").style.color = cls.color;
-  const profs = [...member.primaryProfessions, ...member.secondaryProfessions].map(profName).join(", ");
-  $("#drawer-synced").textContent = `Level ${member.level} ${cls?.name ?? member.mainClass}${profs ? ` · ${profs}` : ""} — from the armory`;
+  const skills = member.armory?.skills ?? {};
+  const profs = [...member.primaryProfessions, ...member.secondaryProfessions]
+    .map((p) => (skills[p] ? `${profName(p)} ${skills[p].skill}` : profName(p)))
+    .join(", ");
+  $("#drawer-synced").textContent = `${rankName(member.guildRank)} · Level ${member.level} ${member.armory?.race ?? ""} ${cls?.name ?? member.mainClass}${profs ? ` · ${profs}` : ""} — from the armory`.replace(/\s+/g, " ");
   $("#form-errors").classList.add("hidden");
   $("#form-errors").innerHTML = "";
   $("#f-id").value = member.id;
@@ -443,6 +498,7 @@ async function openArmory(name) {
   $("#armory-crest").className = "crest hidden";
   $("#armory-doll").classList.add("hidden");
   $("#armory-stats").classList.add("hidden");
+  $("#armory-extra").classList.add("hidden");
   $("#armory-status").textContent = "Consulting the armory…";
   $("#armory").showModal();
 
@@ -463,6 +519,7 @@ async function openArmory(name) {
   if (c.faction) $("#armory-crest").className = `crest crest-${c.faction}`;
   $("#armory-ilvl").textContent = c.itemLevel ? `${c.itemLevel} ILVL` : "";
   $("#armory-sub").textContent = [
+    c.title && `${c.title} ·`,
     `${c.level} ${c.race ?? ""} ${cls?.name ?? ""}`.replace(/\s+/g, " ").trim(),
     c.guild && `<${c.guild}>`,
     armory.realm && titleCase(armory.realm),
@@ -486,6 +543,38 @@ async function openArmory(name) {
   if (c.renderUrl || c.avatarUrl) render.src = c.renderUrl ?? c.avatarUrl;
   $("#armory-doll").classList.remove("hidden");
   renderStats(c.stats);
+  renderExtra(c);
+}
+
+// Progress, professions and reputations below the paper doll.
+function renderExtra(c) {
+  const facts = [
+    c.legacy && ["Legacy", `${c.legacy.earned} / ${c.legacy.total}`],
+    c.achievementPoints != null && ["Achievement Points", c.achievementPoints.toLocaleString()],
+    c.pvp && ["PvP Rank", c.pvp.rank ? `Rank ${c.pvp.rank}` : "None"],
+    c.pvp && ["Honorable Kills", c.pvp.honorableKills.toLocaleString()],
+    c.gender && ["Gender", c.gender],
+  ].filter(Boolean);
+  const skills = c.professions?.skills ?? {};
+  const profs = [...(c.professions?.primary ?? []), ...(c.professions?.secondary ?? [])];
+  const bar = (label, value, max, note) => `
+    <li class="meter"><span class="meter-label">${esc(label)}</span><span class="meter-track"><span class="meter-fill" data-pct="${max ? Math.min(100, (value / max) * 100) : 0}"></span></span><span class="meter-note">${esc(note)}</span></li>`;
+  const sections = [
+    facts.length && `<section><h3>Progress</h3><dl class="facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></section>`,
+    profs.length &&
+      `<section><h3>Professions</h3><ul class="meters">${profs
+        .map((p) => (skills[p] ? bar(profName(p), skills[p].skill, skills[p].max, `${skills[p].skill} / ${skills[p].max}`) : bar(profName(p), 0, 0, "—")))
+        .join("")}</ul></section>`,
+    c.reputations?.length &&
+      `<section><h3>Reputation</h3><ul class="meters">${c.reputations
+        .map((r) => bar(r.faction, r.value, r.max, `${r.standing} ${r.value} / ${r.max}`))
+        .join("")}</ul></section>`,
+  ].filter(Boolean);
+  const el = $("#armory-extra");
+  el.innerHTML = sections.join("");
+  el.classList.toggle("hidden", sections.length === 0);
+  // Widths through the DOM, not style="", to keep the CSP free of 'unsafe-inline'.
+  for (const fill of el.querySelectorAll(".meter-fill")) fill.style.width = `${fill.dataset.pct}%`;
 }
 
 function initForm() {
@@ -540,6 +629,13 @@ $("#roster-body").addEventListener("click", (e) => {
   const m = members.find((x) => x.id === id);
   if (!m) return;
   if (btn.dataset.action === "edit") openDrawer(m);
+});
+
+$("#roster-table thead").addEventListener("click", (e) => {
+  const btn = e.target.closest("button.sort");
+  if (!btn) return;
+  sort = btn.dataset.sort === sort.key ? { key: sort.key, dir: -sort.dir } : { key: btn.dataset.sort, dir: 1 };
+  renderRoster();
 });
 
 $("#roster").addEventListener("click", (e) => {

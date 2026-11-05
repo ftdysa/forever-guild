@@ -53,12 +53,16 @@
         <table id="roster-table" class="roster">
           <thead>
             <tr>
-              <th>Character</th>
-              <th>Level</th>
+              <th><button type="button" class="sort" data-sort="name">Character</button></th>
+              <th><button type="button" class="sort" data-sort="rank">Rank</button></th>
+              <th><button type="button" class="sort" data-sort="level">Level</button></th>
               <th>Main</th>
               <th>Backup</th>
               <th>Primaries</th>
               <th>Secondaries</th>
+              <th><button type="button" class="sort" data-sort="ilvl">iLvl</button></th>
+              <th><button type="button" class="sort" data-sort="legacy">Legacy</button></th>
+              <th><button type="button" class="sort" data-sort="seen">Last Seen</button></th>
               <th>Sweat Factor</th>
               <th>Leveling Pref</th>
               <th>Notes</th>
@@ -143,6 +147,7 @@
         <ul id="doll-weapons" class="doll-weapons"></ul>
       </div>
       <div id="armory-stats" class="doll-stats hidden"></div>
+      <div id="armory-extra" class="armory-extra hidden"></div>
       <div id="item-tip" class="item-tip hidden" role="tooltip"></div>
     </div>
   </dialog>

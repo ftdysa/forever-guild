@@ -69,8 +69,20 @@ from talent points. Without it the roster stays empty.
 
 The roster syncs when someone loads it and every 15 minutes while the server
 runs. Newcomers are added, levels and ranks updated, and characters who left
-the guild are removed along with their details. Each member's spec and
-professions are re-read from the armory in the background. Armory data only
+the guild are removed along with their details. Each member's spec,
+professions (with skill), race, title, item level, last login, achievement
+points and Legacy progress are re-read from the armory in the background, four
+characters at a time. Blizzard publishes no profile below level 10, so those
+members show only roster data until they level.
+
+Guild rank names aren't in Blizzard's API; set `GUILD_RANKS` to a
+comma-separated list starting at rank 0 (e.g. `Guild Master,Officer,Member`).
+Unnamed ranks show as "Rank N".
+
+The armory dialog adds reputations, PvP rank and honorable kills, profession
+skill bars and Legacy progress. Legacy challenges are found by reading every
+achievement definition (static data, cached for a week) and keeping those whose
+reward is a Legacy Point; a character's count is account-wide. Armory data only
 fills an empty main spec, so a spec chosen on the site sticks. On Fly the
 machine stops when idle, so syncs (and join announcements) wait for the next
 visit unless `min_machines_running = 1`.
@@ -85,7 +97,7 @@ so armory lookups only cover members of `BLIZZARD_GUILD`.
   - Characters: no hard expiry. After 15 minutes a view sends one conditional
     request (`If-Modified-Since`, which Blizzard ties to the character's last
     login). 304 keeps the cache; 200 means they played, and the character is
-    refetched (5 profile calls + 1 icon search).
+    refetched in one parallel round (up to 8 profile calls + 1 icon search).
   - Item icons: one media search per 100 uncached items, kept for a year.
 - If Blizzard is down, cached data is served; without a cache the API returns 502.
 - On Fly, set the credentials as secrets: `fly secrets set BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...`.

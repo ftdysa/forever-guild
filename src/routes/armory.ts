@@ -15,8 +15,8 @@ export const armoryRoutes: FastifyPluginCallback = (app, _opts, done) => {
 
   app.get("/armory/status", async () => {
     if (!app.armory) return { enabled: false };
-    const { region, namespace, realm, guild } = app.armory.settings;
-    return { enabled: true, region, namespace, realm: realm ?? null, guild, wowheadItemUrl: wowheadItemUrl(namespace) };
+    const { region, namespace, realm, guild, ranks } = app.armory.settings;
+    return { enabled: true, region, namespace, realm: realm ?? null, guild, ranks: ranks ?? [], wowheadItemUrl: wowheadItemUrl(namespace) };
   });
 
   // Cache misses fan out to six Blizzard calls plus uncached item icons (and a roster call on Forever),

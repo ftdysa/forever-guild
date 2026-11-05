@@ -25,6 +25,8 @@ export interface BlizzardConfig {
   // Unset for forever.
   realm?: string;
   guild: string;
+  // Display names for guild ranks 0..n; Blizzard's API only exposes rank numbers.
+  ranks: string[];
 }
 
 export interface DiscordConfig {
@@ -56,6 +58,10 @@ function loadBlizzardConfig(env: NodeJS.ProcessEnv): BlizzardConfig | undefined 
   if ((realm !== undefined && !SLUG_RE.test(realm)) || !SLUG_RE.test(guild)) {
     throw new Error("BLIZZARD_REALM and BLIZZARD_GUILD must be slugs (lowercase letters, digits, hyphens)");
   }
+  const ranks = (env.GUILD_RANKS ?? "").split(",").map((r) => r.trim());
+  if (ranks.length > 10 || ranks.some((r) => r.length > 32) || (ranks.length > 1 && ranks.some((r) => !r))) {
+    throw new Error("GUILD_RANKS must be up to 10 comma-separated names, rank 0 first, each 1-32 characters");
+  }
   return {
     clientId: env.BLIZZARD_CLIENT_ID as string,
     clientSecret: env.BLIZZARD_CLIENT_SECRET as string,
@@ -63,6 +69,7 @@ function loadBlizzardConfig(env: NodeJS.ProcessEnv): BlizzardConfig | undefined 
     namespace,
     realm,
     guild,
+    ranks: ranks.filter(Boolean),
   };
 }
 

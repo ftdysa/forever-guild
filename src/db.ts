@@ -1,11 +1,25 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { RosterEntry } from "./armory.js";
+import type { Professions, RosterEntry } from "./armory.js";
 import type { MemberDetails } from "./validate.js";
 
 // A guild member: identity, class, level and professions come from the guild roster and armory;
 // MemberDetails are entered on the site.
+// Armory facts shown on the roster, refreshed by the guild sync. null until first read.
+export interface MemberArmory {
+  race: string | null;
+  gender: string | null;
+  faction: "horde" | "alliance" | null;
+  title: string | null;
+  itemLevel: number | null;
+  lastLogin: string | null;
+  achievementPoints: number | null;
+  // Forever only; account-wide.
+  legacy: { earned: number; total: number } | null;
+  skills: Professions["skills"];
+}
+
 export interface Member extends MemberDetails {
   id: number;
   characterName: string;
@@ -16,6 +30,7 @@ export interface Member extends MemberDetails {
   guildRank: number;
   primaryProfessions: string[];
   secondaryProfessions: string[];
+  armory: MemberArmory | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +50,7 @@ interface Row {
   backup_spec: string | null;
   primary_professions: string;
   secondary_professions: string;
+  armory: string | null;
   sweat_factor: string | null;
   leveling_pref: string | null;
   notes: string;
@@ -55,6 +71,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   backup_spec TEXT,
   primary_professions TEXT NOT NULL DEFAULT '[]',
   secondary_professions TEXT NOT NULL DEFAULT '[]',
+  armory TEXT,
   sweat_factor TEXT,
   leveling_pref TEXT,
   notes TEXT NOT NULL DEFAULT '',
@@ -81,6 +98,7 @@ function rowToMember(r: Row): Member {
     backupSpec: r.backup_spec,
     primaryProfessions: JSON.parse(r.primary_professions) as string[],
     secondaryProfessions: JSON.parse(r.secondary_professions) as string[],
+    armory: r.armory ? (JSON.parse(r.armory) as MemberArmory) : null,
     sweatFactor: r.sweat_factor,
     levelingPref: r.leveling_pref,
     notes: r.notes,
@@ -101,9 +119,11 @@ export class MemberStore {
   constructor(private db: Database.Database) {
     this.migrate();
     this.db.exec(membersTable("members"));
-    // Added after the guild-sync schema; plain ALTER is enough for a nullable column.
+    // Added after the guild-sync schema; plain ALTER is enough for nullable columns.
     const cols = (this.db.pragma("table_info(members)") as { name: string }[]).map((c) => c.name);
-    if (!cols.includes("surname")) this.db.exec("ALTER TABLE members ADD COLUMN surname TEXT");
+    for (const col of ["surname", "armory"]) {
+      if (!cols.includes(col)) this.db.exec(`ALTER TABLE members ADD COLUMN ${col} TEXT`);
+    }
   }
 
   // Tables from the hand-entered roster era have a NOT NULL main_spec and no level or rank.
@@ -144,7 +164,7 @@ export class MemberStore {
         `UPDATE members SET surname = @surname, main_class = @classId, level = @level, guild_rank = @rank, updated_at = @now
          WHERE id = @id`,
       );
-      const row = (r: RosterMember) => ({ name: r.name, surname: r.surname, classId: r.classId, level: r.level, rank: r.rank, now });
+      const row = (r: RosterMember) => ({ name: r.name, surname: r.surname ?? null, classId: r.classId, level: r.level, rank: r.rank, now });
       const added: number[] = [];
       for (const r of roster) {
         const m = existing.get(r.name.toLowerCase());
@@ -163,18 +183,29 @@ export class MemberStore {
   // Applies armory data: professions are replaced; the spec only fills an empty main spec, so a
   // spec someone chose on the site wins over the talent guess. `m` may be a stale snapshot (the
   // refresh runs in the background), so the empty-spec check happens in SQL, not here.
-  applyArmory(m: Member, data: { spec: string | null; primary: string[]; secondary: string[] }): void {
+  applyArmory(
+    m: Member,
+    data: { spec: string | null; primary: string[]; secondary: string[]; armory: MemberArmory },
+  ): void {
     const unchanged =
       (m.mainSpec !== null || data.spec === null) &&
       JSON.stringify(data.primary) === JSON.stringify(m.primaryProfessions) &&
-      JSON.stringify(data.secondary) === JSON.stringify(m.secondaryProfessions);
+      JSON.stringify(data.secondary) === JSON.stringify(m.secondaryProfessions) &&
+      JSON.stringify(data.armory) === JSON.stringify(m.armory);
     if (unchanged) return;
     this.db
       .prepare(
         `UPDATE members SET main_spec = COALESCE(main_spec, @spec), primary_professions = @primary,
-           secondary_professions = @secondary, updated_at = @now WHERE id = @id`,
+           secondary_professions = @secondary, armory = @armory, updated_at = @now WHERE id = @id`,
       )
-      .run({ id: m.id, spec: data.spec, primary: JSON.stringify(data.primary), secondary: JSON.stringify(data.secondary), now: new Date().toISOString() });
+      .run({
+        id: m.id,
+        spec: data.spec,
+        primary: JSON.stringify(data.primary),
+        secondary: JSON.stringify(data.secondary),
+        armory: JSON.stringify(data.armory),
+        now: new Date().toISOString(),
+      });
   }
 
   updateDetails(id: number, d: MemberDetails): Member | undefined {

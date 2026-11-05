@@ -11,6 +11,8 @@ const thrall: RosterMember = { name: "Thrall", surname: "Durotan", slug: "thrall
 const jaina: RosterMember = { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", classId: "mage", level: 12, rank: 3 };
 const details = { mainSpec: "frost", backupClass: "priest", backupSpec: "holy", sweatFactor: "world-first", levelingPref: "duo", notes: "portals" };
 
+const ARMORY = { race: "Human", gender: "Female", faction: "alliance" as const, title: null, itemLevel: 12, lastLogin: null, achievementPoints: 0, legacy: { earned: 1, total: 65 }, skills: {} };
+
 let db: Database.Database;
 let store: MemberStore;
 beforeEach(() => {
@@ -39,6 +41,7 @@ test("syncRoster adds newcomers with empty details, sorted by name", () => {
       backupSpec: null,
       primaryProfessions: [],
       secondaryProfessions: [],
+      armory: null,
       sweatFactor: null,
       levelingPref: null,
       notes: "",
@@ -87,32 +90,40 @@ test("a guild-sync table without surname gains the column, keeping rows", () => 
 
 test("applyArmory replaces professions and only fills an empty main spec", () => {
   const [m] = store.syncRoster([jaina]);
-  store.applyArmory(store.get(m.id)!, { spec: "fire", primary: ["tailoring", "enchanting"], secondary: ["cooking"] });
+  store.applyArmory(store.get(m.id)!, { spec: "fire", primary: ["tailoring", "enchanting"], secondary: ["cooking"], armory: ARMORY });
   let got = store.get(m.id)!;
   assert.equal(got.mainSpec, "fire");
   assert.deepEqual(got.primaryProfessions, ["tailoring", "enchanting"]);
   store.updateDetails(m.id, { ...details, mainSpec: "frost" });
-  store.applyArmory(store.get(m.id)!, { spec: "arcane", primary: ["tailoring"], secondary: [] });
+  store.applyArmory(store.get(m.id)!, { spec: "arcane", primary: ["tailoring"], secondary: [], armory: ARMORY });
   got = store.get(m.id)!;
   assert.equal(got.mainSpec, "frost");
   assert.deepEqual(got.primaryProfessions, ["tailoring"]);
   assert.deepEqual(got.secondaryProfessions, []);
 });
 
+test("applyArmory stores the armory snapshot and replaces it when it changes", () => {
+  const [m] = store.syncRoster([jaina]);
+  store.applyArmory(m, { spec: null, primary: [], secondary: [], armory: ARMORY });
+  assert.deepEqual(store.get(m.id)!.armory, ARMORY);
+  store.applyArmory(store.get(m.id)!, { spec: null, primary: [], secondary: [], armory: { ...ARMORY, itemLevel: 20 } });
+  assert.equal(store.get(m.id)!.armory?.itemLevel, 20);
+});
+
 test("applyArmory with a stale snapshot never overwrites a spec chosen since", () => {
   const [m] = store.syncRoster([jaina]);
   store.updateDetails(m.id, { ...details, mainSpec: "frost" });
-  store.applyArmory(m, { spec: "fire", primary: ["tailoring"], secondary: [] });
+  store.applyArmory(m, { spec: "fire", primary: ["tailoring"], secondary: [], armory: ARMORY });
   assert.equal(store.get(m.id)!.mainSpec, "frost");
   assert.deepEqual(store.get(m.id)!.primaryProfessions, ["tailoring"]);
 });
 
 test("applyArmory leaves updatedAt alone when nothing changed", async () => {
   const [m] = store.syncRoster([jaina]);
-  store.applyArmory(store.get(m.id)!, { spec: "fire", primary: [], secondary: [] });
+  store.applyArmory(store.get(m.id)!, { spec: "fire", primary: [], secondary: [], armory: ARMORY });
   const before = store.get(m.id)!.updatedAt;
   await new Promise((r) => setTimeout(r, 5));
-  store.applyArmory(store.get(m.id)!, { spec: "arcane", primary: [], secondary: [] });
+  store.applyArmory(store.get(m.id)!, { spec: "arcane", primary: [], secondary: [], armory: ARMORY });
   assert.equal(store.get(m.id)!.updatedAt, before);
 });
 
