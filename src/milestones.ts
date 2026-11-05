@@ -5,6 +5,9 @@ export const MAX_LEVEL = 60;
 export const MAX_SKILL = 300;
 export const PVP_RANKS = 14;
 const HOLDERS = 3;
+// Level thresholds tracked as milestones. Only the last has a Legacy achievement to backfill from.
+export const LEVEL_MILESTONES = [10, 20, 30, 40, 50, 60];
+const LEVEL_KEYS = LEVEL_MILESTONES.map(String);
 const LEVEL_KEY = String(MAX_LEVEL);
 
 // What a milestone achievement proves. classId is set for "Master <Class>" (level 60 on that class).
@@ -29,7 +32,7 @@ export interface CharacterState {
 
 export function milestonesMet(s: CharacterState): { kind: MilestoneKind; key: string }[] {
   const out: { kind: MilestoneKind; key: string }[] = [];
-  if (s.level >= MAX_LEVEL) out.push({ kind: "level", key: LEVEL_KEY });
+  for (const n of LEVEL_MILESTONES) if (s.level >= n) out.push({ kind: "level", key: String(n) });
   for (const p of PROFESSIONS) if ((s.skills[p.id] ?? 0) >= MAX_SKILL) out.push({ kind: "skill", key: p.id });
   for (let r = 1; r <= Math.min(s.pvpRank ?? 0, PVP_RANKS); r++) out.push({ kind: "pvp_rank", key: String(r) });
   return out;
@@ -40,10 +43,10 @@ export interface DetectInput {
   state: CharacterState;
   // The character's latest snapshot from an earlier day (not today's).
   prior: Snapshot | null;
-  // The character's latest snapshot from an earlier day with level below MAX_LEVEL. The level is
-  // written every sync but skills/PvP only by the armory pass, so "previously seen below 60" can
-  // predate `prior`.
-  priorBelowLevel: Snapshot | null;
+  // Per level key, the character's latest snapshot from an earlier day with level below that
+  // threshold (missing when there is none). The level is written every sync but skills/PvP only
+  // by the armory pass, so "previously seen below N" can predate `prior`.
+  priorBelowLevel: Record<string, Snapshot | null>;
   // On the roster when tracking began (first snapshot day == tracking start).
   launchMember: boolean;
   existing: Pick<Milestone, "kind" | "key">[];
@@ -52,10 +55,10 @@ export interface DetectInput {
   now: string;
 }
 
-// The earlier snapshot a milestone is compared against: levels use the last sub-60 snapshot,
-// skills and PvP the latest earlier one.
-function comparison(kind: MilestoneKind, i: DetectInput): Snapshot | null {
-  return kind === "level" ? i.priorBelowLevel : i.prior;
+// The earlier snapshot a milestone is compared against: levels use the last snapshot below that
+// threshold, skills and PvP the latest earlier one.
+function comparison(kind: MilestoneKind, key: string, i: DetectInput): Snapshot | null {
+  return kind === "level" ? (i.priorBelowLevel[key] ?? null) : i.prior;
 }
 
 // True when the comparison snapshot shows the character below this milestone. Skills and PvP are
@@ -90,7 +93,7 @@ export function detectMilestones(i: DetectInput): NewMilestone[] {
     .filter((m) => !have.has(`${m.kind}:${m.key}`))
     .map(({ kind, key }): NewMilestone => {
       const base = { name: i.name, kind, key, classId: i.state.classId, race: i.state.race };
-      const snap = comparison(kind, i);
+      const snap = comparison(kind, key, i);
       if (snap && wasBelow(kind, key, snap)) return { ...base, source: "observed", reachedAt: observedAt(i, snap) };
       if (!i.launchMember) return { ...base, source: "before_joining", reachedAt: null };
       const at = achievedAt(kind, key, i);
@@ -114,8 +117,9 @@ export interface Category {
 }
 
 export interface Firsts {
-  overall60: Category;
-  byClass: Record<string, Category>;
+  // Keyed by level milestone ("10" ... "60"); byClassLevel is class id, then level key.
+  byLevel: Record<string, Category>;
+  byClassLevel: Record<string, Record<string, Category>>;
   byRace: Record<string, Category>;
   bySkill: Record<string, Category>;
   byPvpRank: Record<string, Category>;
@@ -139,19 +143,21 @@ function category(rows: Milestone[], current: Set<string>): Category {
   };
 }
 
-const isSixty = (m: Pick<Milestone, "kind" | "key">) => m.kind === "level" && m.key === LEVEL_KEY;
+const isLevel = (m: Pick<Milestone, "kind" | "key">, key: string) => m.kind === "level" && m.key === key;
 
 // Guild firsts per category. before_joining rows (arrived already past it) never count.
 // `races`: races to list even when unclaimed (e.g. every race seen in a snapshot).
 export function computeFirsts(all: Milestone[], currentNames: string[] = [], races: string[] = []): Firsts {
   const current = new Set(currentNames.map((n) => n.toLowerCase()));
   const of = (pred: (m: Milestone) => boolean) => category(all.filter(pred), current);
-  const sixties = all.filter(isSixty);
+  const sixties = all.filter((m) => isLevel(m, LEVEL_KEY));
   const raceKeys = [...new Set([...races, ...sixties.map((m) => m.race).filter((r): r is string => !!r)])].sort(byName);
   return {
-    overall60: of(isSixty),
-    byClass: Object.fromEntries(CLASSES.map((c) => [c.id, of((m) => isSixty(m) && m.classId === c.id)])),
-    byRace: Object.fromEntries(raceKeys.map((r) => [r, of((m) => isSixty(m) && m.race === r)])),
+    byLevel: Object.fromEntries(LEVEL_KEYS.map((k) => [k, of((m) => isLevel(m, k))])),
+    byClassLevel: Object.fromEntries(
+      CLASSES.map((c) => [c.id, Object.fromEntries(LEVEL_KEYS.map((k) => [k, of((m) => isLevel(m, k) && m.classId === c.id)]))]),
+    ),
+    byRace: Object.fromEntries(raceKeys.map((r) => [r, of((m) => isLevel(m, LEVEL_KEY) && m.race === r)])),
     bySkill: Object.fromEntries(PROFESSIONS.map((p) => [p.id, of((m) => m.kind === "skill" && m.key === p.id)])),
     byPvpRank: Object.fromEntries(
       Array.from({ length: PVP_RANKS }, (_, i) => String(i + 1)).map((r) => [r, of((m) => m.kind === "pvp_rank" && m.key === r)]),
@@ -163,9 +169,12 @@ export function computeFirsts(all: Milestone[], currentNames: string[] = [], rac
 export function claimedFirsts(m: Pick<Milestone, "name" | "kind" | "key" | "classId" | "race">, firsts: Firsts): string[] {
   const leads = (c: Category | undefined) => c?.holders[0]?.name.toLowerCase() === m.name.toLowerCase();
   if (m.kind === "level") {
+    const overall = leads(firsts.byLevel[m.key]) && `First to reach level ${m.key}`;
+    // Class and race firsts are announced for level 60 only; lower ones just show on the site.
+    if (m.key !== LEVEL_KEY) return overall ? [overall] : [];
     return [
-      leads(firsts.overall60) && "First to reach level 60",
-      leads(firsts.byClass[m.classId]) && `First ${findClass(m.classId)?.name ?? m.classId} to reach level 60`,
+      overall,
+      leads(firsts.byClassLevel[m.classId]?.[m.key]) && `First ${findClass(m.classId)?.name ?? m.classId} to reach level 60`,
       m.race && leads(firsts.byRace[m.race]) && `First ${m.race} to reach level 60`,
     ].filter((s): s is string => !!s);
   }

@@ -13,7 +13,7 @@ test("empty history", () => {
   assert.equal(r.trackingSince, null);
   assert.deepEqual(r.series, []);
   assert.deepEqual(r.pvp, []);
-  assert.deepEqual(r.firsts.overall60, { holders: [], atLaunch: [] });
+  assert.deepEqual(r.firsts.byLevel["60"], { holders: [], atLaunch: [] });
 });
 
 test("series keep first, last and both sides of each change, so plateaus stay flat", () => {

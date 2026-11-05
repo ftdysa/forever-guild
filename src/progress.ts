@@ -1,7 +1,7 @@
 import type { CharacterInfo } from "./armory.js";
 import type { Member, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
-import { claimedFirsts, computeFirsts, detectMilestones, MAX_LEVEL } from "./milestones.js";
+import { claimedFirsts, computeFirsts, detectMilestones, LEVEL_MILESTONES } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
 
 // History key for a character: Forever first names aren't unique, so the surname is part of it.
@@ -43,11 +43,16 @@ export class ProgressRecorder {
     const today = this.store.get(name, day);
     if (!today) return;
 
+    const level = Math.max(m.level, c.level);
+    // One comparison snapshot per threshold the character meets now.
+    const priorBelowLevel = Object.fromEntries(
+      LEVEL_MILESTONES.filter((n) => level >= n).map((n) => [String(n), this.store.latestBelowLevel(name, day, n)]),
+    );
     const added = detectMilestones({
       name,
-      state: { classId: m.mainClass, race: today.race, level: Math.max(m.level, c.level), skills: today.skills, pvpRank: today.pvpRank },
+      state: { classId: m.mainClass, race: today.race, level, skills: today.skills, pvpRank: today.pvpRank },
       prior,
-      priorBelowLevel: this.store.latestBelowLevel(name, day, MAX_LEVEL),
+      priorBelowLevel,
       launchMember: this.store.firstDay(name) === this.store.trackingSince(),
       existing: this.store.milestonesFor(name),
       achievements: c.milestoneAchievements,

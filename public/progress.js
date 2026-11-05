@@ -58,8 +58,8 @@ export function rankTitle(rank, race) {
 export function firstsGroups(firsts, game) {
   const card = (id, title, c, extra = {}) => ({ id, title, holders: c.holders, atLaunch: c.atLaunch, ...extra });
   return [
-    { heading: "Level 60", cards: [card("overall", "First to 60", firsts.overall60)] },
-    { heading: "Classes", cards: game.classes.map((c) => card(`class-${c.id}`, c.name, firsts.byClass[c.id], { classId: c.id })) },
+    { heading: "Level 60", cards: [card("overall", "First to 60", firsts.byLevel["60"])] },
+    { heading: "Classes", cards: game.classes.map((c) => card(`class-${c.id}`, c.name, firsts.byClassLevel[c.id]["60"], { classId: c.id })) },
     { heading: "Races", cards: Object.keys(firsts.byRace).sort().map((r) => card(`race-${r}`, r, firsts.byRace[r])) },
     { heading: "Professions", cards: game.professions.map((p) => card(`skill-${p.id}`, `${p.name} 300`, firsts.bySkill[p.id])) },
     {

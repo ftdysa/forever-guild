@@ -51,8 +51,8 @@ test("rankTitle uses the faction's title, or the number when the race is unknown
 test("firstsGroups orders level 60, classes, races, professions and PvP ranks", () => {
   const empty = { holders: [], atLaunch: [] };
   const firsts = {
-    overall60: empty,
-    byClass: Object.fromEntries(CLASSES.map((c) => [c.id, empty])),
+    byLevel: { "60": empty },
+    byClassLevel: Object.fromEntries(CLASSES.map((c) => [c.id, { "60": empty }])),
     byRace: { Orc: empty, Gnome: empty },
     bySkill: Object.fromEntries(PROFESSIONS.map((p) => [p.id, empty])),
     byPvpRank: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [String(i + 1), empty])),

@@ -176,7 +176,8 @@ test("progress: every sync snapshots the roster, and a level-60 ding on a later 
   await sync.sync();
   await sync.idle();
   assert.deepEqual(progress.snapshots().map((s) => [s.name, s.day, s.level]), [["Thrall", "1970-01-01", 20]]);
-  assert.deepEqual(progress.milestones(), []);
+  // already past 10 and 20 when tracking began: recorded, undated, never announced
+  assert.deepEqual(progress.milestones().map((m) => [m.key, m.source]), [["10", "before_tracking"], ["20", "before_tracking"]]);
 
   advance(24 * 60 * 60 * 1000);
   const login = 86_400_000 + 500_000;
@@ -187,10 +188,17 @@ test("progress: every sync snapshots the roster, and a level-60 ding on a later 
   await sync.idle();
 
   assert.deepEqual(progress.snapshots().map((s) => [s.day, s.level, s.race]), [["1970-01-01", 20, null], ["1970-01-02", 60, "Orc"]]);
-  assert.deepEqual(progress.milestones().map((m) => [m.name, m.kind, m.key, m.source, m.reachedAt]), [
-    ["Thrall", "level", "60", "observed", new Date(login).toISOString()],
+  const at = new Date(login).toISOString();
+  assert.deepEqual(progress.milestones().filter((m) => m.source === "observed").map((m) => [m.name, m.kind, m.key, m.reachedAt]), [
+    ["Thrall", "level", "30", at], ["Thrall", "level", "40", at], ["Thrall", "level", "50", at], ["Thrall", "level", "60", at],
   ]);
-  assert.deepEqual(firsts, [["Thrall", ["First to reach level 60", "First Shaman to reach level 60", "First Orc to reach level 60"]]]);
+  assert.deepEqual(firsts, [[
+    "Thrall",
+    [
+      "First to reach level 30", "First to reach level 40", "First to reach level 50",
+      "First to reach level 60", "First Shaman to reach level 60", "First Orc to reach level 60",
+    ],
+  ]]);
 });
 
 test("progress failures are logged and never break the roster refresh or armory enrichment", async () => {
