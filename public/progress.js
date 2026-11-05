@@ -209,7 +209,7 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
     const t = classLevelTable(data.firsts, game);
     const cell = (h, classId) => (h ? nameCell(h.name, classId) : '<span class="muted">—</span>');
     return `<section class="firsts-group"><h3>Class firsts</h3><div class="firsts-scroll"><table class="class-firsts"><thead><tr><th>Class</th>${t.levels.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${t.rows
-      .map((r) => `<tr><td><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h, i) => `<td title="${h ? esc(h.name) : ""}">${cell(h, r.classId)}</td>`).join("")}</tr>`)
+      .map((r) => `<tr><td><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h) => `<td title="${h ? esc(h.name) : ""}">${cell(h, r.classId)}</td>`).join("")}</tr>`)
       .join("")}</tbody></table></div></section>`;
   };
   root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts, game)
