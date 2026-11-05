@@ -21,11 +21,41 @@ export interface PvpSeries {
   history: [string, number, number][];
 }
 
+export interface Standing {
+  name: string;
+  class: string;
+  race: string | null;
+  level: number;
+  // First day this character was seen at its current level.
+  reachedOn: string;
+  gained7d: number;
+}
+
+export interface FirstsCount {
+  name: string;
+  class: string;
+  count: number;
+}
+
+export interface SkillEntry {
+  name: string;
+  class: string;
+  skill: number;
+}
+
+export interface Leaderboard {
+  standings: Standing[];
+  fastest: Standing[];
+  mostFirsts: FirstsCount[];
+  skills: Record<string, SkillEntry[]>;
+}
+
 export interface ProgressReport {
   trackingSince: string | null;
   series: LevelSeries[];
   pvp: PvpSeries[];
   firsts: Firsts;
+  leaderboard: Leaderboard;
   // Current members by lowercased progress name, so any name shown can open their armory.
   links: Record<string, { characterName: string; surname: string | null }>;
 }
@@ -38,12 +68,77 @@ function compress<T extends [string, ...number[]]>(rows: Snapshot[], point: (r: 
   return points.filter((p, i) => i === 0 || i === points.length - 1 || value(p) !== value(points[i - 1]) || value(p) !== value(points[i + 1]));
 }
 
+const cmpName = (a: string, b: string) => a.localeCompare(b);
+
+// `today` minus 7 days, as a UTC YYYY-MM-DD string.
+function weekAgo(today: string): string {
+  const [y, m, d] = today.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 7)).toISOString().slice(0, 10);
+}
+
+function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Firsts, today: string): Leaderboard {
+  const cutoff = weekAgo(today);
+  const members = byChar.filter((rows) => current.has(rows[0].name.toLowerCase()));
+
+  const standings: Standing[] = members.map((rows) => {
+    const last = rows[rows.length - 1];
+    const baseline = rows.filter((r) => r.day <= cutoff).pop() ?? rows[0];
+    return {
+      name: last.name,
+      class: last.classId,
+      race: last.race,
+      level: last.level,
+      reachedOn: (rows.find((r) => r.level === last.level) ?? last).day,
+      gained7d: last.level - baseline.level,
+    };
+  });
+  standings.sort((a, b) => b.level - a.level || a.reachedOn.localeCompare(b.reachedOn) || cmpName(a.name, b.name));
+
+  const fastest = standings
+    .filter((x) => x.gained7d > 0)
+    .sort((a, b) => b.gained7d - a.gained7d || b.level - a.level || cmpName(a.name, b.name))
+    .slice(0, 10);
+
+  const classOf = new Map(members.map((rows) => [rows[0].name.toLowerCase(), rows[rows.length - 1].classId]));
+  const counts = new Map<string, number>();
+  const categories = [
+    ...Object.values(firsts.byLevel),
+    ...Object.values(firsts.byClassLevel).flatMap((levels) => Object.values(levels)),
+    ...Object.values(firsts.byRace),
+    ...Object.values(firsts.bySkill),
+    ...Object.values(firsts.byPvpRank),
+  ];
+  for (const c of categories) {
+    const first = c.holders[0]?.name.toLowerCase();
+    if (first && current.has(first)) counts.set(first, (counts.get(first) ?? 0) + 1);
+  }
+  const display = new Map(members.map((rows) => [rows[0].name.toLowerCase(), rows[rows.length - 1].name]));
+  const mostFirsts = [...counts]
+    .map(([key, count]) => ({ name: display.get(key) as string, class: classOf.get(key) as string, count }))
+    .sort((a, b) => b.count - a.count || cmpName(a.name, b.name))
+    .slice(0, 10);
+
+  const bySkill: Record<string, SkillEntry[]> = {};
+  for (const rows of members) {
+    const last = rows[rows.length - 1];
+    for (const [id, skill] of Object.entries(last.skills)) {
+      if (skill > 0) (bySkill[id] ??= []).push({ name: last.name, class: last.classId, skill });
+    }
+  }
+  const skills = Object.fromEntries(
+    Object.entries(bySkill).map(([id, list]) => [id, list.sort((a, b) => b.skill - a.skill || cmpName(a.name, b.name)).slice(0, 3)]),
+  );
+
+  return { standings, fastest, mostFirsts, skills };
+}
+
 // `snapshots` must be ordered by name, then day (ProgressStore.snapshots()). History is keyed by
 // progress name (first name + surname), so a member is current when theirs matches.
 export function buildProgress(
   snapshots: Snapshot[],
   milestones: Milestone[],
   members: { characterName: string; surname: string | null }[],
+  today: string,
 ): ProgressReport {
   const links = Object.fromEntries(
     members.map(({ characterName, surname }) => [progressName(characterName, surname).toLowerCase(), { characterName, surname }]),
@@ -78,5 +173,7 @@ export function buildProgress(
 
   const days = snapshots.map((s) => s.day).sort();
   const races = [...new Set(snapshots.map((s) => s.race).filter((r): r is string => !!r))];
-  return { trackingSince: days[0] ?? null, series, pvp, firsts: computeFirsts(milestones, currentNames, races), links };
+  const firsts = computeFirsts(milestones, currentNames, races);
+  const leaderboard = buildLeaderboard([...byName.values()], current, firsts, today);
+  return { trackingSince: days[0] ?? null, series, pvp, firsts, leaderboard, links };
 }
