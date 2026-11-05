@@ -10,18 +10,8 @@ import { join } from "node:path";
 const PASS = "for-the-horde";
 const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
 
-const thrall = {
-  characterName: "Thrall",
-  mainClass: "shaman",
-  mainSpec: "restoration",
-  backupClass: "warrior",
-  backupSpec: "protection",
-  primaryProfessions: ["alchemy", "herbalism"],
-  secondaryProfessions: ["cooking"],
-  sweatFactor: "casual",
-  levelingPref: "duo",
-  notes: "",
-};
+// Editable details for a synced member.
+const details = { mainSpec: "restoration", backupClass: "warrior", backupSpec: "protection", sweatFactor: "casual", levelingPref: "duo", notes: "" };
 
 let app: FastifyInstance;
 let cookie: Record<string, string>;
@@ -82,70 +72,52 @@ test("missing passphrase is 400", async () => {
 test("members routes require session", async () => {
   for (const [method, url] of [
     ["GET", "/api/members"],
-    ["POST", "/api/members"],
     ["PUT", "/api/members/1"],
-    ["DELETE", "/api/members/1"],
     ["POST", "/api/logout"],
   ] as const) {
-    const res = await app.inject({ method, url, payload: method === "GET" || method === "DELETE" ? undefined : thrall });
+    const res = await app.inject({ method, url, payload: method === "GET" ? undefined : details });
     assert.equal(res.statusCode, 401, `${method} ${url}`);
   }
   const forged = await app.inject({ method: "GET", url: "/api/members", cookies: { session: "forged.sig" } });
   assert.equal(forged.statusCode, 401);
 });
 
-test("create, list, update, delete", async () => {
-  const created = await app.inject({ method: "POST", url: "/api/members", cookies: cookie, payload: thrall });
-  assert.equal(created.statusCode, 201);
-  const m = created.json();
-  assert.equal(m.characterName, "Thrall");
-  assert.equal(typeof m.id, "number");
-  assert.equal(m.sweatFactor, "casual");
-  assert.equal(m.levelingPref, "duo");
-
+test("members can be listed and their details edited, but not created or deleted", async () => {
+  const [thrall] = app.store.syncRoster([{ name: "Thrall", classId: "shaman", level: 14, rank: 0 }]);
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
   assert.equal(list.statusCode, 200);
-  assert.equal(list.json().length, 1);
+  assert.deepEqual(list.json().map((m: { characterName: string }) => m.characterName), ["Thrall"]);
 
-  const updated = await app.inject({
-    method: "PUT",
-    url: `/api/members/${m.id}`,
-    cookies: cookie,
-    payload: { ...thrall, mainSpec: "elemental" },
-  });
+  const updated = await app.inject({ method: "PUT", url: `/api/members/${thrall.id}`, cookies: cookie, payload: details });
   assert.equal(updated.statusCode, 200);
-  assert.equal(updated.json().mainSpec, "elemental");
+  assert.equal(updated.json().mainSpec, "restoration");
+  assert.equal(updated.json().sweatFactor, "casual");
+  // synced fields are not editable
+  const ignored = await app.inject({
+    method: "PUT",
+    url: `/api/members/${thrall.id}`,
+    cookies: cookie,
+    payload: { ...details, characterName: "Garrosh", mainClass: "warrior", level: 60 },
+  });
+  assert.equal(ignored.json().characterName, "Thrall");
+  assert.equal(ignored.json().level, 14);
 
-  const del = await app.inject({ method: "DELETE", url: `/api/members/${m.id}`, cookies: cookie });
-  assert.equal(del.statusCode, 204);
-  const again = await app.inject({ method: "DELETE", url: `/api/members/${m.id}`, cookies: cookie });
-  assert.equal(again.statusCode, 404);
+  assert.equal((await app.inject({ method: "POST", url: "/api/members", cookies: cookie, payload: details })).statusCode, 404);
+  assert.equal((await app.inject({ method: "DELETE", url: `/api/members/${thrall.id}`, cookies: cookie })).statusCode, 404);
 });
 
-test("validation errors are 400 with details", async () => {
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/members",
-    cookies: cookie,
-    payload: { ...thrall, mainSpec: "protection" },
-  });
+test("validation errors are 400 with details, checked against the synced class", async () => {
+  const id = app.store.list()[0].id;
+  const res = await app.inject({ method: "PUT", url: `/api/members/${id}`, cookies: cookie, payload: { ...details, mainSpec: "fury" } });
   assert.equal(res.statusCode, 400);
   assert.equal(res.json().error, "validation failed");
-  assert.ok(res.json().details.includes("mainSpec does not belong to mainClass"));
-});
-
-test("duplicate name is 409", async () => {
-  const a = await app.inject({ method: "POST", url: "/api/members", cookies: cookie, payload: { ...thrall, characterName: "Jaina" } });
-  assert.equal(a.statusCode, 201);
-  const b = await app.inject({ method: "POST", url: "/api/members", cookies: cookie, payload: { ...thrall, characterName: "jaina" } });
-  assert.equal(b.statusCode, 409);
-  assert.deepEqual(b.json(), { error: "character name already taken" });
+  assert.ok(res.json().details.includes("mainSpec does not belong to the main class"));
 });
 
 test("malformed JSON body is 400", async () => {
   const res = await app.inject({
-    method: "POST",
-    url: "/api/members",
+    method: "PUT",
+    url: "/api/members/1",
     cookies: cookie,
     headers: { "content-type": "application/json" },
     payload: "{bad json",
@@ -156,8 +128,8 @@ test("malformed JSON body is 400", async () => {
 
 test("unsupported media type is 415", async () => {
   const res = await app.inject({
-    method: "POST",
-    url: "/api/members",
+    method: "PUT",
+    url: "/api/members/1",
     cookies: cookie,
     headers: { "content-type": "application/x-www-form-urlencoded" },
     payload: "a=b",
@@ -173,9 +145,9 @@ test("unknown route is 404 with error body", async () => {
 });
 
 test("unknown id is 404, bad id is 400", async () => {
-  const res = await app.inject({ method: "PUT", url: "/api/members/99999", cookies: cookie, payload: thrall });
+  const res = await app.inject({ method: "PUT", url: "/api/members/99999", cookies: cookie, payload: details });
   assert.equal(res.statusCode, 404);
-  const bad = await app.inject({ method: "PUT", url: "/api/members/abc", cookies: cookie, payload: thrall });
+  const bad = await app.inject({ method: "PUT", url: "/api/members/abc", cookies: cookie, payload: details });
   assert.equal(bad.statusCode, 400);
 });
 

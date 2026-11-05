@@ -10,6 +10,8 @@ const thrall: Member = {
   characterName: "Thrall",
   mainClass: "shaman",
   mainSpec: "enhancement",
+  level: 42,
+  guildRank: 0,
   backupClass: "warrior",
   backupSpec: "protection",
   primaryProfessions: ["alchemy", "herbalism"],
@@ -25,7 +27,7 @@ const bare: Member = {
   ...thrall,
   characterName: "Anduin",
   mainClass: "priest",
-  mainSpec: "holy",
+  mainSpec: null,
   backupClass: null,
   backupSpec: null,
   primaryProfessions: [],
@@ -36,7 +38,7 @@ const bare: Member = {
 
 test("join embed has title, class colour, and named fields", () => {
   const e = buildJoinEmbed(thrall, "https://example.test");
-  assert.equal(e.title, "Thrall joined the roster");
+  assert.equal(e.title, "Thrall joined the guild");
   assert.equal(e.url, "https://example.test");
   assert.equal(e.color, 0x0070dd);
   assert.equal(e.timestamp, thrall.createdAt);
@@ -44,6 +46,7 @@ test("join embed has title, class colour, and named fields", () => {
     e.fields.map((f) => [f.name, f.value]),
     [
       ["Main", "Shaman — Enhancement"],
+      ["Level", "42"],
       ["Backup", "Warrior — Protection"],
       ["Professions", "Alchemy, Herbalism, First Aid"],
       ["Style", "Casual · Duo"],
@@ -54,7 +57,8 @@ test("join embed has title, class colour, and named fields", () => {
 test("join embed omits empty fields, url, and notes", () => {
   const e = buildJoinEmbed(bare);
   assert.equal("url" in e, false);
-  assert.deepEqual(e.fields.map((f) => f.name), ["Main"]);
+  // a newcomer whose spec isn't known yet shows just the class
+  assert.deepEqual(e.fields.map((f) => [f.name, f.value]), [["Main", "Priest"], ["Level", "42"]]);
   assert.equal(JSON.stringify(buildJoinEmbed(thrall)).includes("secret plans"), false);
 });
 

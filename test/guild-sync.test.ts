@@ -1,0 +1,159 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import { ArmoryService } from "../src/armory.js";
+import { buildApp } from "../src/app.js";
+import { BlizzardClient } from "../src/blizzard.js";
+import { ArmoryCache, MemberStore, openDatabase, type Member } from "../src/db.js";
+import type { DiscordNotifier } from "../src/discord.js";
+import { GuildSync } from "../src/guild-sync.js";
+import { sessionCookieName } from "../src/routes/auth.js";
+import { fakeBlizzard, iconSearch } from "./fake-blizzard.js";
+
+const ROSTER = "/data/wow/guild/old-school/roster";
+const char = (slug: string) => `/profile/wow/character/${slug}`;
+const rosterRow = (name: string, slug: string, classId: number, level: number) => ({
+  character: { name, slug, level, playable_class: { id: classId } },
+  rank: 4,
+});
+
+// Thrall (resto shaman, alchemist) is in the guild from the start; Jaina joins later.
+function routes() {
+  return {
+    [ROSTER]: { members: [rosterRow("Thrall", "thrall-durotan", 7, 20)] },
+    [char("thrall-durotan")]: { name: "Thrall", surname: "Durotan", level: 20, character_class: { id: 7 } },
+    [`${char("thrall-durotan")}/specializations`]: {
+      specialization_groups: [{ is_active: true, specializations: [{ specialization_name: "Restoration", spent_points: 11 }] }],
+    },
+    [`${char("thrall-durotan")}/professions`]: {
+      primaries: [{ profession: { name: "Alchemy" } }, { profession: { name: "Herbalism" } }],
+      secondaries: [{ profession: { name: "Cooking" } }],
+    },
+    [char("jaina-proudmoore")]: { name: "Jaina", level: 12, character_class: { id: 8 } },
+    [`${char("jaina-proudmoore")}/specializations`]: {
+      specialization_groups: [{ is_active: true, specializations: [{ specialization_name: "Frost", spent_points: 3 }] }],
+    },
+    "/data/wow/search/media": iconSearch,
+  } as Record<string, unknown>;
+}
+
+const quietLog = { warn() {}, error() {} } as unknown as FastifyBaseLogger;
+const cfg = { region: "us", namespace: "forever", guild: "old-school" };
+
+function setup() {
+  let t = 1_000_000;
+  const r = routes();
+  const fake = fakeBlizzard(r);
+  const db = openDatabase(":memory:");
+  const store = new MemberStore(db);
+  const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn), new ArmoryCache(db), cfg, () => t);
+  const joined: Member[] = [];
+  const notifier = { memberJoined: async (m: Member) => void joined.push(m) } as unknown as DiscordNotifier;
+  const sync = new GuildSync(armory, store, notifier, quietLog, () => t);
+  return {
+    r, fake, store, sync, joined,
+    advance: (ms: number) => (t += ms),
+    roster: (rows: unknown[]) => (r[ROSTER] = { members: rows }),
+  };
+}
+
+test("the first sync seeds the roster silently and fills spec and professions from the armory", async () => {
+  const { store, sync, joined } = setup();
+  await sync.sync();
+  assert.deepEqual(store.list().map((m) => [m.characterName, m.level, m.mainClass]), [["Thrall", 20, "shaman"]]);
+  await sync.idle();
+  const [thrall] = store.list();
+  assert.equal(thrall.mainSpec, "restoration");
+  assert.deepEqual(thrall.primaryProfessions, ["alchemy", "herbalism"]);
+  assert.deepEqual(thrall.secondaryProfessions, ["cooking"]);
+  assert.deepEqual(joined, []);
+});
+
+test("later syncs announce newcomers (with their spec) and drop leavers", async () => {
+  const { store, sync, joined, advance, roster } = setup();
+  await sync.sync();
+  await sync.idle();
+  roster([rosterRow("Jaina", "jaina-proudmoore", 8, 12)]);
+  advance(16 * 60 * 1000); // past the roster cache
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(store.list().map((m) => m.characterName), ["Jaina"]);
+  assert.deepEqual(joined.map((m) => [m.characterName, m.mainSpec]), [["Jaina", "frost"]]);
+});
+
+test("level-ups show on the next roster refresh; a chosen main spec survives", async () => {
+  const { store, sync, advance, roster } = setup();
+  await sync.sync();
+  await sync.idle();
+  const id = store.list()[0].id;
+  store.updateDetails(id, { mainSpec: "enhancement", backupClass: null, backupSpec: null, sweatFactor: null, levelingPref: null, notes: "" });
+  roster([rosterRow("Thrall", "thrall-durotan", 7, 21)]);
+  advance(16 * 60 * 1000);
+  await sync.sync();
+  await sync.idle();
+  assert.equal(store.get(id)?.level, 21);
+  assert.equal(store.get(id)?.mainSpec, "enhancement");
+});
+
+test("concurrent syncs share one run", async () => {
+  const { fake, sync } = setup();
+  await Promise.all([sync.sync(), sync.sync(), sync.sync()]);
+  assert.equal(fake.calls.filter((c) => c === ROSTER).length, 1);
+});
+
+test("a roster that can't be read rejects and leaves the members alone", async () => {
+  const { fake, store, sync } = setup();
+  fake.state.apiDown = true;
+  await assert.rejects(sync.sync(), /unreachable/);
+  assert.deepEqual(store.list(), []);
+});
+
+// --- Through the API ---
+const PASS = "for-the-horde-forever";
+const base = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
+const blizzard = { clientId: "id", clientSecret: "s", region: "us", namespace: "forever", guild: "old-school" };
+
+async function login(a: FastifyInstance) {
+  const res = await a.inject({ method: "POST", url: "/api/login", payload: { passphrase: PASS } });
+  const name = sessionCookieName(false);
+  return { [name]: res.cookies.find((c) => c.name === name)!.value };
+}
+
+test("GET /api/members syncs first", async () => {
+  const fake = fakeBlizzard(routes());
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  await app.ready();
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json().map((m: Member) => m.characterName), ["Thrall"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /api/members still answers when Blizzard is down", async () => {
+  const fake = fakeBlizzard(routes());
+  fake.state.apiDown = true;
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  await app.ready();
+  try {
+    const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), []);
+  } finally {
+    await app.close();
+  }
+});
+
+test("without Blizzard config there is no sync and the roster is empty", async () => {
+  const app = buildApp(base);
+  await app.ready();
+  try {
+    assert.equal(app.guildSync, null);
+    const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
+    assert.deepEqual(res.json(), []);
+  } finally {
+    await app.close();
+  }
+});

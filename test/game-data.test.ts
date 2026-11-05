@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import {
   CLASSES,
   PROFESSIONS,
-  PRIMARY_IDS,
-  SECONDARY_IDS,
   findClass,
   findSpec,
   gameData,
@@ -24,10 +22,10 @@ test("has 9 classes with 3 specs each and a role on every spec", () => {
 });
 
 test("has 9 primary and 3 secondary professions", () => {
-  assert.equal(PRIMARY_IDS.length, 9);
-  assert.equal(SECONDARY_IDS.length, 3);
+  const ids = (kind: string) => PROFESSIONS.filter((p) => p.kind === kind).map((p) => p.id);
+  assert.equal(ids("primary").length, 9);
   assert.equal(PROFESSIONS.length, 12);
-  assert.deepEqual(SECONDARY_IDS, ["cooking", "fishing", "first-aid"]);
+  assert.deepEqual(ids("secondary"), ["cooking", "fishing", "first-aid"]);
 });
 
 test("class and spec ids are unique within scope", () => {

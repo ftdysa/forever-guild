@@ -11,7 +11,6 @@ const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
 
 let game = null; // { classes, professions, sweatFactors, levelingPrefs }
 let members = [];
-let pendingDeleteId = null;
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
 
 // ---------- API ----------
@@ -32,8 +31,8 @@ const classById = (id) => game.classes.find((c) => c.id === id);
 const specOf = (classId, specId) => classById(classId)?.specs.find((s) => s.id === specId);
 const profName = (id) => game.professions.find((p) => p.id === id)?.name ?? id;
 const primaries = () => game.professions.filter((p) => p.kind === "primary");
-const secondaries = () => game.professions.filter((p) => p.kind === "secondary");
 const DASH = '<span class="muted">—</span>';
+const profList = (ids) => (ids.length ? ids.map((p) => esc(profName(p))).join(", ") : DASH);
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -44,7 +43,8 @@ function classCell(classId, specId) {
   const c = classById(classId);
   const s = specOf(classId, specId);
   const badge = s ? `<span class="badge">${ICONS[s.role]}${ROLE_LABEL[s.role]}</span>` : "";
-  return `<span class="cls" data-class="${esc(c.id)}">${esc(c.name)}</span>${badge}<br><span class="spec">${esc(s?.name ?? specId)}</span>`;
+  const spec = s ? esc(s.name) : '<span class="muted">Spec unknown</span>';
+  return `<span class="cls" data-class="${esc(c.id)}">${esc(c.name)}</span>${badge}<br><span class="spec">${spec}</span>`;
 }
 
 function sweatCell(id) {
@@ -201,16 +201,16 @@ function renderRoster() {
       (m) => `
     <tr data-id="${m.id}">
       <td data-label="Character">${characterName(m.characterName, "name")}</td>
+      <td data-label="Level">${m.level}</td>
       <td data-label="Main">${classCell(m.mainClass, m.mainSpec)}</td>
       <td data-label="Backup">${classCell(m.backupClass, m.backupSpec)}</td>
-      <td data-label="Primaries">${m.primaryProfessions.map((p) => esc(profName(p))).join(", ")}</td>
-      <td data-label="Secondaries">${m.secondaryProfessions.length ? m.secondaryProfessions.map((p) => esc(profName(p))).join(", ") : DASH}</td>
+      <td data-label="Primaries">${profList(m.primaryProfessions)}</td>
+      <td data-label="Secondaries">${profList(m.secondaryProfessions)}</td>
       <td data-label="Sweat Factor">${sweatCell(m.sweatFactor)}</td>
       <td data-label="Leveling Pref">${levelingCell(m.levelingPref)}</td>
       <td data-label="Notes">${m.notes ? esc(m.notes) : DASH}</td>
       <td class="actions">
         <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
-        <button class="btn btn-danger btn-small" data-action="delete">Remove</button>
       </td>
     </tr>`,
     )
@@ -246,33 +246,28 @@ function applyTab() {
 }
 
 // ---------- Drawer ----------
-// `member` is the record being edited (null when adding).
+// Name, class, level and professions come from the guild roster; only the rest is editable.
 function openDrawer(member) {
-  $("#drawer-title").textContent = member ? "Edit Member" : "Add Member";
+  const cls = classById(member.mainClass);
+  $("#drawer-title").textContent = member.characterName;
+  if (cls) $("#drawer-title").style.color = cls.color;
+  const profs = [...member.primaryProfessions, ...member.secondaryProfessions].map(profName).join(", ");
+  $("#drawer-synced").textContent = `Level ${member.level} ${cls?.name ?? member.mainClass}${profs ? ` · ${profs}` : ""} — from the armory`;
   $("#form-errors").classList.add("hidden");
   $("#form-errors").innerHTML = "";
-  $("#f-id").value = member?.id ?? "";
-  $("#f-name").value = member?.characterName ?? "";
-  $("#f-main-class").value = classById(member?.mainClass) ? member.mainClass : game.classes[0].id;
-  fillSpecs($("#f-main-class"), $("#f-main-spec"));
-  $("#f-main-spec").value = member?.mainSpec ?? "";
-  if (!$("#f-main-spec").value) $("#f-main-spec").selectedIndex = 0;
-  $("#f-backup-class").value = member?.backupClass ?? "";
+  $("#f-id").value = member.id;
+  fillSelect($("#f-main-spec"), cls ? cls.specs : [], { placeholder: "Unknown" });
+  $("#f-main-spec").value = member.mainSpec ?? "";
+  $("#f-backup-class").value = member.backupClass ?? "";
   fillSpecs($("#f-backup-class"), $("#f-backup-spec"), { placeholder: "—" });
-  $("#f-backup-spec").value = member?.backupSpec ?? "";
-  const prim1 = member?.primaryProfessions?.[0] ?? primaries()[0].id;
-  $("#f-prim-1").value = prim1;
-  $("#f-prim-2").value = member?.primaryProfessions?.[1] ?? primaries().find((p) => p.id !== prim1).id;
-  for (const cb of document.querySelectorAll("#f-secondaries input")) {
-    cb.checked = member?.secondaryProfessions?.includes(cb.value) ?? false;
-  }
-  $("#f-sweat").value = member?.sweatFactor ?? "";
-  $("#f-leveling").value = member?.levelingPref ?? "";
-  $("#f-notes").value = member?.notes ?? "";
+  $("#f-backup-spec").value = member.backupSpec ?? "";
+  $("#f-sweat").value = member.sweatFactor ?? "";
+  $("#f-leveling").value = member.levelingPref ?? "";
+  $("#f-notes").value = member.notes ?? "";
   const d = $("#drawer");
   d.classList.remove("hidden");
   d.setAttribute("aria-hidden", "false");
-  $("#f-name").focus();
+  $("#f-main-spec").focus();
 }
 
 function closeDrawer() {
@@ -283,13 +278,9 @@ function closeDrawer() {
 
 function formPayload() {
   return {
-    characterName: $("#f-name").value,
-    mainClass: $("#f-main-class").value,
-    mainSpec: $("#f-main-spec").value,
+    mainSpec: $("#f-main-spec").value || null,
     backupClass: $("#f-backup-class").value || null,
     backupSpec: $("#f-backup-spec").value || null,
-    primaryProfessions: [$("#f-prim-1").value, $("#f-prim-2").value],
-    secondaryProfessions: [...document.querySelectorAll("#f-secondaries input:checked")].map((cb) => cb.value),
     sweatFactor: $("#f-sweat").value || null,
     levelingPref: $("#f-leveling").value || null,
     notes: $("#f-notes").value,
@@ -317,7 +308,7 @@ async function loadMembers() {
     return false;
   }
   members = r.data ?? [];
-  $("#empty-msg").textContent = "No members yet. Be the first to sign the ledger.";
+  $("#empty-msg").textContent = "No guild members found yet.";
   renderRoster();
   showRoster();
   return true;
@@ -495,16 +486,9 @@ async function openArmory(name) {
 }
 
 function initForm() {
-  fillSelect($("#f-main-class"), game.classes);
   fillSelect($("#f-backup-class"), game.classes, { placeholder: "None" });
-  fillSelect($("#f-prim-1"), primaries());
-  fillSelect($("#f-prim-2"), primaries());
   fillSelect($("#f-sweat"), game.sweatFactors, { placeholder: "—" });
   fillSelect($("#f-leveling"), game.levelingPrefs, { placeholder: "—" });
-  $("#f-secondaries").innerHTML = secondaries()
-    .map((p) => `<label><input type="checkbox" value="${p.id}" /> ${esc(p.name)}</label>`)
-    .join("");
-  $("#f-main-class").addEventListener("change", () => fillSpecs($("#f-main-class"), $("#f-main-spec")));
   $("#f-backup-class").addEventListener("change", () => fillSpecs($("#f-backup-class"), $("#f-backup-spec"), { placeholder: "—" }));
 }
 
@@ -532,7 +516,6 @@ $("#logout-btn").addEventListener("click", async () => {
   showGate();
 });
 
-$("#add-btn").addEventListener("click", () => openDrawer(null));
 $("#cancel-btn").addEventListener("click", closeDrawer);
 $("#drawer").addEventListener("click", (e) => {
   if (e.target === $("#drawer")) closeDrawer();
@@ -540,8 +523,7 @@ $("#drawer").addEventListener("click", (e) => {
 
 $("#member-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const id = $("#f-id").value;
-  const r = id ? await api("PUT", `/api/members/${id}`, formPayload()) : await api("POST", "/api/members", formPayload());
+  const r = await api("PUT", `/api/members/${$("#f-id").value}`, formPayload());
   if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
   if (!r.ok) return showFormErrors(r.data?.details ?? [r.data?.error ?? "Something went wrong."]);
   closeDrawer();
@@ -555,11 +537,6 @@ $("#roster-body").addEventListener("click", (e) => {
   const m = members.find((x) => x.id === id);
   if (!m) return;
   if (btn.dataset.action === "edit") openDrawer(m);
-  if (btn.dataset.action === "delete") {
-    pendingDeleteId = id;
-    $("#confirm-text").textContent = `${m.characterName} will be struck from the ledger.`;
-    $("#confirm").showModal();
-  }
 });
 
 $("#roster").addEventListener("click", (e) => {
@@ -607,17 +584,6 @@ doll.addEventListener("click", (e) => {
     e.preventDefault();
     showTip(slot);
   }
-});
-
-$("#confirm-cancel").addEventListener("click", () => $("#confirm").close());
-$("#confirm-ok").addEventListener("click", async () => {
-  const id = pendingDeleteId;
-  pendingDeleteId = null;
-  $("#confirm").close();
-  const r = await api("DELETE", `/api/members/${id}`);
-  if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
-  // 404 means already removed; reload reflects reality
-  await loadMembers();
 });
 
 document.addEventListener("keydown", (e) => {

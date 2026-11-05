@@ -7,8 +7,9 @@ export function classOverview(members, classes) {
     const specs = cls.specs.map((spec) => ({ spec, mains: names("main", cls, spec), backups: names("backup", cls, spec) }));
     return {
       cls,
-      mainCount: specs.reduce((n, s) => n + s.mains.length, 0),
-      backupCount: specs.reduce((n, s) => n + s.backups.length, 0),
+      // By class, so members whose spec isn't known yet still count.
+      mainCount: members.filter((m) => m.mainClass === cls.id).length,
+      backupCount: members.filter((m) => m.backupClass === cls.id).length,
       specs,
     };
   });

@@ -1,9 +1,10 @@
 # Old School Guild Roster
 
-Guild members claim a main class/spec, an optional backup class/spec, two
-primary professions, secondary professions, and optionally a sweat factor
-and leveling preference. Everyone behind the guild
-passphrase sees the full roster and coverage counts.
+The roster mirrors the guild on the WoW armory: every member of
+`BLIZZARD_GUILD` appears automatically with their class, level, professions and
+a main spec guessed from talents. Members add a backup class/spec, sweat factor,
+leveling preference and notes, and can override the guessed main spec.
+Everyone behind the guild passphrase sees the full roster and coverage counts.
 
 ## Run with Docker
 
@@ -53,19 +54,26 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | GET    | /api/game-data     | classes, specs, roles, professions, sweat factors, leveling prefs |
 | POST   | /api/login         | `{ passphrase }` → 204 + cookie     |
 | POST   | /api/logout        | clears cookie                       |
-| GET    | /api/members       | roster sorted by name               |
-| POST   | /api/members       | create → 201                        |
-| PUT    | /api/members/:id   | replace → 200                       |
-| DELETE | /api/members/:id   | → 204                               |
+| GET    | /api/members       | syncs with the guild, then the roster sorted by name |
+| PUT    | /api/members/:id   | edit details (`mainSpec`, `backupClass`, `backupSpec`, `sweatFactor`, `levelingPref`, `notes`) → 200 |
 | GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }`; `realm` is null on Forever |
 | GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown (on Forever: not in the guild), 502 Blizzard down |
 
 Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 429 / 500 / 502.
 
-## Armory (Blizzard API)
+## Armory and guild sync (Blizzard API)
 
-Optional. With `BLIZZARD_*` set (see `.env.example`), character names open an
-armory view with gear, item level, and a spec guessed from talent points.
+With `BLIZZARD_*` set (see `.env.example`), the roster is the guild's roster and
+character names open an armory view with gear, item level, and a spec guessed
+from talent points. Without it the roster stays empty.
+
+The roster syncs when someone loads it and every 15 minutes while the server
+runs. Newcomers are added, levels and ranks updated, and characters who left
+the guild are removed along with their details. Each member's spec and
+professions are re-read from the armory in the background. Armory data only
+fills an empty main spec, so a spec chosen on the site sticks. On Fly the
+machine stops when idle, so syncs (and join announcements) wait for the next
+visit unless `min_machines_running = 1`.
 
 WoW Forever (`BLIZZARD_NAMESPACE=forever`) has no realms: characters are
 addressed as `name-surname`. The app looks the surname up in the guild roster,
@@ -73,7 +81,7 @@ so armory lookups only cover members of `BLIZZARD_GUILD`.
 
 - Calls go server-side with client credentials; the secret never reaches the browser.
 - Responses are cached in SQLite:
-  - Guild roster (Forever name → surname lookup): 15 minutes.
+  - Guild roster: 15 minutes.
   - Characters: no hard expiry. After 15 minutes a view sends one conditional
     request (`If-Modified-Since`, which Blizzard ties to the character's last
     login). 304 keeps the cache; 200 means they played, and the character is
@@ -97,11 +105,11 @@ user. Then update `BLIZZARD_REALM` / `BLIZZARD_GUILD` and deploy.
 
 ## Discord announcements
 
-Optional. With `DISCORD_WEBHOOK_URL` set (see `.env.example`), each new roster
-member is posted to that channel as an embed in their class colour, linking to
-`SITE_URL` when set. Edits and removals are not posted. Delivery is
-best-effort: if Discord is down the post is dropped and the roster save still
-succeeds.
+Optional. With `DISCORD_WEBHOOK_URL` set (see `.env.example`), each character
+the guild sync finds joining the guild is posted to that channel as an embed in
+their class colour, linking to `SITE_URL` when set. The first sync into an empty
+roster seeds it without posting. Edits and departures are not posted. Delivery
+is best-effort: if Discord is down the post is dropped.
 
 - The webhook URL is a secret. On Fly: `fly secrets set DISCORD_WEBHOOK_URL=...`.
 
