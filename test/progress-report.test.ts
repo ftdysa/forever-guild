@@ -165,3 +165,14 @@ test("skills: top 3 per profession from latest snapshots, empty professions omit
     herbalism: [{ name: "B", class: "warrior", skill: 50 }],
   });
 });
+
+test("mostFirsts takes name and class from the holder", () => {
+  const r = buildProgress(
+    // Latest snapshot says priest; the milestone row (the holder) was recorded as a mage named "ann".
+    [s("Ann", "2026-11-01", 60, { classId: "priest" })],
+    [{ name: "ann", kind: "level", key: "60", classId: "mage", race: "Orc", reachedAt: "2026-11-02", source: "observed", announced: true }],
+    [mem("Ann")],
+    TODAY,
+  );
+  assert.deepEqual(r.leaderboard.mostFirsts, [{ name: "ann", class: "mage", count: 3 }]);
+});

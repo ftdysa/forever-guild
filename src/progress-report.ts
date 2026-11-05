@@ -99,8 +99,7 @@ function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Fi
     .sort((a, b) => b.gained7d - a.gained7d || b.level - a.level || cmpName(a.name, b.name))
     .slice(0, 10);
 
-  const classOf = new Map(members.map((rows) => [rows[0].name.toLowerCase(), rows[rows.length - 1].classId]));
-  const counts = new Map<string, number>();
+  const counts = new Map<string, FirstsCount>();
   const categories = [
     ...Object.values(firsts.byLevel),
     ...Object.values(firsts.byClassLevel).flatMap((levels) => Object.values(levels)),
@@ -109,12 +108,14 @@ function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Fi
     ...Object.values(firsts.byPvpRank),
   ];
   for (const c of categories) {
-    const first = c.holders[0]?.name.toLowerCase();
-    if (first && current.has(first)) counts.set(first, (counts.get(first) ?? 0) + 1);
+    const first = c.holders[0];
+    const key = first?.name.toLowerCase();
+    if (!key || !current.has(key)) continue;
+    const entry = counts.get(key) ?? { name: first.name, class: first.classId, count: 0 };
+    entry.count++;
+    counts.set(key, entry);
   }
-  const display = new Map(members.map((rows) => [rows[0].name.toLowerCase(), rows[rows.length - 1].name]));
-  const mostFirsts = [...counts]
-    .map(([key, count]) => ({ name: display.get(key) as string, class: classOf.get(key) as string, count }))
+  const mostFirsts = [...counts.values()]
     .sort((a, b) => b.count - a.count || cmpName(a.name, b.name))
     .slice(0, 10);
 
