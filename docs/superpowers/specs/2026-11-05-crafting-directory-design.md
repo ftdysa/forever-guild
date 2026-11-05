@@ -67,6 +67,7 @@ interface Catalog {
         id: number;
         name: string;
         itemId: number | null;   // crafted item, null for enchants etc.
+        itemName: string | null;
         makes: number;           // crafted quantity, default 1
         reagents: { itemId: number; name: string; quantity: number }[];
       }[];
@@ -80,7 +81,8 @@ interface Catalog {
   (~2,500 calls, about half a minute).
 - Storage: one entry in the existing `armory_cache` table, key
   `<region>:forever:recipes:v1`. It is parsed once and kept in memory until
-  the cache entry's `fetchedAt` changes (another process, e.g. the CLI,
+  the cache entry's `fetchedAt` changes (read via a new cheap
+  `ArmoryCache.fetchedAt(key)`) (another process, e.g. the CLI,
   rebuilt it).
 - Single flight: concurrent `ensure()` / `rebuild()` calls share one build.
 - Atomic: a build is written only when complete. A failed build leaves the
@@ -119,7 +121,7 @@ interface Catalog {
   status: "ready" | "building" | "unavailable";
   catalog: Catalog | null;        // null unless ready
   // recipe id → members who know it, highest skill first
-  crafters: Record<number, { memberId: number; name: string; skill: number | null }[]>;
+  crafters: Record<number, { memberId: number; characterName: string; surname: string | null; skill: number | null }[]>;
 }
 ```
 
@@ -127,9 +129,11 @@ interface Catalog {
 - `unavailable`: no catalog cached and the last build failed.
 - When a rebuild is running but an older catalog exists, the status is
   `ready` with the old catalog.
-- `name` is the member's full name (with surname); `skill` is their current
-  skill in that recipe's profession, from the armory snapshot.
-- Responses are compressed (`@fastify/compress`, registered for JSON only).
+- `characterName` and `surname` let the page show the full name and link the
+  armory by first name, as the roster does; `skill` is their current skill in
+  that recipe's profession, from the armory snapshot.
+- Responses are compressed (`@fastify/compress`, registered globally with a
+  1 KB threshold, which also covers static assets).
 - 404 when the armory is disabled or the namespace isn't `forever`.
 
 ## UI (Crafting tab)
