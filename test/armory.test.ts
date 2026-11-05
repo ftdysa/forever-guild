@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { ArmoryService, inferSpec, mapProfessions, mapStats, type RawItem } from "../src/armory.js";
+import { ArmoryService, inferSpec, mapProfessions, mapStats, milestoneOf, type RawItem } from "../src/armory.js";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache } from "../src/db.js";
 import { BASE, ICONS, fakeBlizzard, characterFixture, iconSearch } from "./fake-blizzard.js";
@@ -390,4 +390,43 @@ test("forever: an unknown guild surfaces as an error, and a new guild never sees
   await armory.character("jaina");
   const { armory: other } = setup(foreverFixture(), { ...foreverCfg, guild: "other" }, cache);
   await assert.rejects(other.character("jaina"), /guild not found/);
+});
+
+test("milestoneOf maps Master <Class>, Artisan <Profession> and Rank <N>; ignores the rest", () => {
+  assert.deepEqual(milestoneOf("Master Druid"), { kind: "level", key: "60", classId: "druid" });
+  assert.deepEqual(milestoneOf("Artisan Leatherworker"), { kind: "skill", key: "leatherworking", classId: null });
+  assert.deepEqual(milestoneOf("Rank 14"), { kind: "pvp_rank", key: "14", classId: null });
+  for (const name of ["Master Spelunker", "Master of Alterac Valley", "Expert Tailor", "Rank 15", "Novice Mage"]) {
+    assert.equal(milestoneOf(name), null, name);
+  }
+});
+
+test("forever: completed milestone achievements come back with their dates", async () => {
+  const routes = foreverFixture();
+  Object.assign(routes, {
+    "/data/wow/achievement-category/index": { categories: [{ id: 1 }] },
+    "/data/wow/achievement-category/1": { achievements: [{ id: 400 }, { id: 401 }, { id: 402 }, { id: 403 }] },
+    "/data/wow/achievement/400": { id: 400, name: "Master Mage", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/401": { id: 401, name: "Artisan Tailor", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/402": { id: 402, name: "Rank 7", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/403": { id: 403, name: "Master Spelunker", reward_description: "Earn 1 Legacy Point." },
+    [`${FOREVER}/achievements`]: {
+      achievements: [
+        { id: 400, completed_timestamp: Date.UTC(2026, 9, 1) },
+        { id: 401 }, // in progress
+        { id: 402, completed_timestamp: Date.UTC(2026, 9, 2) },
+        { id: 403, completed_timestamp: Date.UTC(2026, 9, 3) },
+      ],
+    },
+  });
+  const { armory } = setup(routes, foreverCfg);
+  assert.deepEqual((await armory.character("jaina"))?.milestoneAchievements, [
+    { kind: "level", key: "60", classId: "mage", completedAt: "2026-10-01T00:00:00.000Z" },
+    { kind: "pvp_rank", key: "7", classId: null, completedAt: "2026-10-02T00:00:00.000Z" },
+  ]);
+});
+
+test("milestone achievements are empty when the lookup fails or outside Forever", async () => {
+  assert.deepEqual((await setup(foreverFixture(), foreverCfg).armory.character("jaina"))?.milestoneAchievements, []);
+  assert.deepEqual((await setup().armory.character("jaina"))?.milestoneAchievements, []);
 });
