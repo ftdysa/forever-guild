@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from "fastify";
+import fastifyCompress from "@fastify/compress";
 import fastifyCookie from "@fastify/cookie";
 import fastifyHelmet from "@fastify/helmet";
 import fastifyRateLimit from "@fastify/rate-limit";
@@ -16,6 +17,8 @@ import { SessionStore } from "./sessions.js";
 import { loginRoute, logoutRoute, readSessionToken } from "./routes/auth.js";
 import { memberRoutes } from "./routes/members.js";
 import { armoryRoutes } from "./routes/armory.js";
+import { RecipeCatalog } from "./recipe-catalog.js";
+import { craftingRoutes } from "./routes/crafting.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -24,10 +27,13 @@ declare module "fastify" {
     armory: ArmoryService | null;
     notifier: DiscordNotifier | null;
     guildSync: GuildSync | null;
+    recipes: RecipeCatalog | null;
     sessions: SessionStore;
     clientIp: (req: FastifyRequest) => string;
   }
 }
+
+const RECIPE_CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
@@ -38,6 +44,8 @@ export interface AppDeps {
   discordFetch?: FetchFn;
   // Background guild sync interval; 0 disables the timer (tests).
   syncEveryMs?: number;
+  // Daily recipe-catalog build check interval; 0 disables the timer (tests).
+  recipeCheckEveryMs?: number;
 }
 
 export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
@@ -52,12 +60,16 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   const db = openDatabase(config.dbPath);
   app.decorate("store", new MemberStore(db));
   const bz = config.blizzard;
-  const armory = bz ? new ArmoryService(new BlizzardClient(bz, deps.blizzardFetch), new ArmoryCache(db), bz) : null;
+  const client = bz ? new BlizzardClient(bz, deps.blizzardFetch) : null;
+  const armory = bz && client ? new ArmoryService(client, new ArmoryCache(db), bz) : null;
   app.decorate("armory", armory);
   const notifier = config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null;
   app.decorate("notifier", notifier);
   const guildSync = armory ? new GuildSync(armory, app.store, notifier, app.log) : null;
   app.decorate("guildSync", guildSync);
+  // The crafting directory exists only on Forever (its static data has the recipe catalog we read).
+  const recipes = bz?.namespace === "forever" && client ? new RecipeCatalog(client, new ArmoryCache(db), bz.region) : null;
+  app.decorate("recipes", recipes);
   app.decorate("sessions", new SessionStore(db, config.guildPassphrase, config.sessionSecret));
   app.decorate("clientIp", (req: FastifyRequest) => {
     const fromHeader = config.clientIpHeader ? req.headers[config.clientIpHeader] : undefined;
@@ -72,9 +84,23 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
     }, deps.syncEveryMs ?? ROSTER_TTL_MS);
     syncTimer.unref();
   }
+  // The recipe catalog is checked at startup (built if missing) and daily for a new game build.
+  const checkRecipes = () => {
+    recipes?.checkBuild().catch((err: unknown) => app.log.warn({ err }, "recipe catalog build failed"));
+  };
+  let recipeTimer: NodeJS.Timeout | undefined;
+  if (recipes) {
+    app.addHook("onReady", async () => checkRecipes());
+    if (deps.recipeCheckEveryMs !== 0) {
+      recipeTimer = setInterval(checkRecipes, deps.recipeCheckEveryMs ?? RECIPE_CHECK_EVERY_MS);
+      recipeTimer.unref();
+    }
+  }
   app.addHook("onClose", async () => {
     clearInterval(syncTimer);
+    clearInterval(recipeTimer);
     await guildSync?.idle();
+    await recipes?.idle();
     db.close();
   });
 
@@ -93,6 +119,8 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
       },
     },
   });
+  // The recipe catalog is ~400 KB of JSON; compression brings it to ~60 KB.
+  app.register(fastifyCompress, { global: true, threshold: 1024 });
   app.register(fastifyCookie, { secret: config.sessionSecret });
   app.register(fastifyRateLimit, { global: false, keyGenerator: (req) => app.clientIp(req) });
   app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: "/" });
@@ -122,6 +150,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
         secured.register(logoutRoute);
         secured.register(memberRoutes);
         secured.register(armoryRoutes);
+        secured.register(craftingRoutes);
       });
     },
     { prefix: "/api" },
