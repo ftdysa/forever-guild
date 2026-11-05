@@ -391,11 +391,13 @@ async function loadCrafting() {
   if (crafting) return drawCrafting();
   clearTimeout(craftingPoll);
   const r = await api("GET", "/api/crafting");
+  if (crafting) return drawCrafting();
   if (r.status === 401) return showGate("Your session expired. Enter the passphrase again.");
   const status = r.ok ? r.data.status : "unavailable";
   $("#crafting-status").textContent =
     status === "building" ? "Building the recipe catalog…" : status === "unavailable" ? "The recipe catalog is unavailable right now." : "";
   if (status === "building") {
+    clearTimeout(craftingPoll);
     craftingPoll = setTimeout(() => {
       if (location.hash === "#crafting") loadCrafting();
     }, 5000);
