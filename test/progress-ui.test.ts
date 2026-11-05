@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CLASSES, PROFESSIONS } from "../src/game-data.js";
-import { classLevelTable, daysBetween, firstsGroups, levelRace, linePath, pvpRows, rankTitle, spreadLabels, TOP } from "../public/progress.js";
+import { classLevelTable, professionTierTable, daysBetween, firstsGroups, levelRace, linePath, pvpRows, rankTitle, spreadLabels, TOP } from "../public/progress.js";
 
 const line = (name: string, cls: string, levels: [string, number][], current = true) => ({ name, class: cls, race: "Orc", current, levels });
 
@@ -62,16 +62,14 @@ const makeFirsts = () => {
 };
 const game = { classes: CLASSES, professions: PROFESSIONS };
 
-test("firstsGroups orders levels, races, professions and PvP ranks", () => {
-  const groups = firstsGroups(makeFirsts(), game);
+test("firstsGroups orders levels, races and PvP ranks", () => {
+  const groups = firstsGroups(makeFirsts());
   assert.deepEqual(groups.map((g) => [g.heading, g.cards.length]), [
-    ["Levels", 6], ["Races", 2], ["Professions", PROFESSIONS.length], ["PvP ranks", 14],
+    ["Levels", 6], ["Races", 2], ["PvP ranks", 14],
   ]);
   assert.deepEqual(groups[0].cards.map((c) => c.title), ["Level 10", "Level 20", "Level 30", "Level 40", "Level 50", "Level 60"]);
   assert.deepEqual(groups[1].cards.map((c) => c.title), ["Gnome", "Orc"]);
-  assert.equal(groups[2].cards[0].title, "Alchemy 300");
-  assert.deepEqual([groups[2].cards[0].holders, groups[2].cards[0].atLaunch], [[], []]);
-  assert.deepEqual([groups[3].cards[6].title, groups[3].cards[6].rank], ["Rank 7", 7]);
+  assert.deepEqual([groups[2].cards[6].title, groups[2].cards[6].rank], ["Rank 7", 7]);
 });
 
 test("classLevelTable lists classes in game order with the first holder per level", () => {
@@ -85,6 +83,19 @@ test("classLevelTable lists classes in game order with the first holder per leve
   assert.equal(mage.cells.length, 6);
   assert.equal(mage.cells[2]?.name, "Ann");
   assert.equal(mage.cells[0], null);
+});
+
+test("professionTierTable lists professions in game order with the first holder per tier", () => {
+  const firsts = makeFirsts();
+  firsts.bySkill[PROFESSIONS[1].id]["150"] = { holders: [holder("Ann"), holder("Bob")], atLaunch: [] } as never;
+  const t = professionTierTable(firsts, game);
+  assert.deepEqual(t.tiers, ["75", "150", "225", "300"]);
+  assert.deepEqual(t.rows.map((r) => r.professionId), PROFESSIONS.map((p) => p.id));
+  assert.equal(t.rows[0].name, PROFESSIONS[0].name);
+  assert.equal(t.rows[1].cells.length, 4);
+  assert.equal(t.rows[1].cells[1]?.name, "Ann");
+  assert.equal(t.rows[1].cells[0], null);
+  assert.equal(t.rows[0].cells[3], null);
 });
 
 test("pvpRows sorts by the chosen column, ties by name", () => {

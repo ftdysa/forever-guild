@@ -57,12 +57,11 @@ export function rankTitle(rank, race) {
 const LEVEL_KEYS = ["10", "20", "30", "40", "50", "60"];
 
 // Cards for the guild firsts board, grouped and ordered for display.
-export function firstsGroups(firsts, game) {
+export function firstsGroups(firsts) {
   const card = (id, title, c, extra = {}) => ({ id, title, holders: c.holders, atLaunch: c.atLaunch, ...extra });
   return [
     { heading: "Levels", cards: LEVEL_KEYS.map((l) => card(`level-${l}`, `Level ${l}`, firsts.byLevel[l])) },
     { heading: "Races", cards: Object.keys(firsts.byRace).sort().map((r) => card(`race-${r}`, r, firsts.byRace[r])) },
-    { heading: "Professions", cards: game.professions.map((p) => card(`skill-${p.id}`, `${p.name} 300`, firsts.bySkill[p.id]["300"])) },
     {
       heading: "PvP ranks",
       cards: Object.keys(firsts.byPvpRank)
@@ -81,6 +80,20 @@ export function classLevelTable(firsts, game) {
       classId: c.id,
       name: c.name,
       cells: LEVEL_KEYS.map((l) => firsts.byClassLevel[c.id]?.[l]?.holders[0] ?? null),
+    })),
+  };
+}
+
+const SKILL_TIERS = ["75", "150", "225", "300"];
+
+// Professions (game order) by skill tier: the first holder per cell, or null.
+export function professionTierTable(firsts, game) {
+  return {
+    tiers: SKILL_TIERS,
+    rows: game.professions.map((p) => ({
+      professionId: p.id,
+      name: p.name,
+      cells: SKILL_TIERS.map((t) => firsts.bySkill[p.id]?.[t]?.holders[0] ?? null),
     })),
   };
 }
@@ -212,9 +225,15 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
       .map((r) => `<tr><td><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h) => `<td title="${h ? esc(h.name) : ""}">${cell(h, r.classId)}</td>`).join("")}</tr>`)
       .join("")}</tbody></table></div></section>`;
   };
-  root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts, game)
+  const professionTable = () => {
+    const t = professionTierTable(data.firsts, game);
+    return `<section class="firsts-group"><h3>Profession firsts</h3><div class="firsts-scroll"><table class="class-firsts"><thead><tr><th>Profession</th>${t.tiers.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${t.rows
+      .map((r) => `<tr><td>${esc(r.name)}</td>${r.cells.map((h) => `<td title="${h ? esc(h.name) : ""}">${h ? nameCell(h.name, h.classId) : '<span class="muted">—</span>'}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table></div></section>`;
+  };
+  root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts)
     .filter((g) => g.cards.length)
-    .map((g) => `<section class="firsts-group"><h3>${esc(g.heading)}</h3><div class="firsts-grid">${g.cards.map(cardHtml).join("")}</div></section>${g.heading === "Levels" ? classTable() : ""}`)
+    .map((g) => `<section class="firsts-group"><h3>${esc(g.heading)}</h3><div class="firsts-grid">${g.cards.map(cardHtml).join("")}</div></section>${g.heading === "Levels" ? classTable() + professionTable() : ""}`)
     .join("");
 
   // PvP tracker

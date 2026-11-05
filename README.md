@@ -158,16 +158,17 @@ standings, fastest levelling this week, most guild firsts, and the top three
 skills per profession. It then charts every character's level over time (the
 top 10 in class colour), lists guild firsts (first to each level milestone,
 every 10 levels from 10 to 60, overall and per class in a class-by-level
-table; first to 60 per race; first to 300 in each profession; first to each
-PvP rank), and tracks current and highest PvP rank with honorable kills.
+table; first to 60 per race; first to each skill tier, 75/150/225/300, per profession in a
+profession-by-tier table; first to each PvP rank), and tracks current and highest PvP rank with honorable kills.
 
 - The guild sync writes one snapshot per character per UTC day (level from
   the roster; race, PvP and skills from the armory, level 10+). Days when the
   server is asleep have no snapshot; the chart joins the points around them.
 - A milestone crossed after tracking began is dated by the character's last
   login. On Forever, members already past a milestone when tracking began are
-  dated from their Legacy achievements ("Master <Class>", "Artisan
-  <Profession>", "Rank N") when the character qualifies; otherwise they are
+  dated from their Legacy achievements ("Master <Class>", "Rank N", and the
+  Journeyman, Expert and Artisan <Profession> achievements, which backfill the
+  profession tiers) when the character qualifies; otherwise they are
   listed as "already there at launch". Those achievements are account-wide,
   so such dates are marked "via achievement".
 - Characters who join already past a milestone don't take guild firsts.
