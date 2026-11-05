@@ -97,3 +97,17 @@ test("bare profession skill keys from before tiers become <profession>:300, once
   assert.equal(migrated?.source, "before_tracking");
   assert.equal(migrated?.reachedAt, "2026-11-01T00:00:00.000Z");
 });
+
+test("skill key migration survives rolled-back bare rows next to migrated ones", () => {
+  const db = openDatabase(":memory:");
+  new ProgressStore(db);
+  const ins = db.prepare("INSERT INTO milestones (character_name, kind, key, class, race, reached_at, source) VALUES (?, 'skill', ?, 'mage', 'Human', ?, ?)");
+  ins.run("Jaina", "alchemy:300", "2026-11-01T00:00:00.000Z", "observed");
+  ins.run("Jaina", "alchemy", "2026-11-04T00:00:00.000Z", "achievement");
+  let s!: ProgressStore;
+  assert.doesNotThrow(() => { s = new ProgressStore(db); });
+  const expected = [{ name: "Jaina", kind: "skill", key: "alchemy:300", classId: "mage", race: "Human", reachedAt: "2026-11-01T00:00:00.000Z", source: "observed", announced: false }];
+  assert.deepEqual(s.milestones(), expected);
+  assert.doesNotThrow(() => new ProgressStore(db));
+  assert.deepEqual(new ProgressStore(db).milestones(), expected);
+});

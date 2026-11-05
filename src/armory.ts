@@ -374,7 +374,7 @@ export function milestoneOf(name: string): MilestoneDef | null {
     return cls ? { kind: "level", key: "60", classId: cls.id } : null;
   }
   const craft = /^(\w+) (\w+)$/.exec(name);
-  if (craft && RANK_TIER[craft[1]] && CRAFTER[craft[2]]) return { kind: "skill", key: skillKey(CRAFTER[craft[2]], RANK_TIER[craft[1]]), classId: null };
+  if (craft && Object.hasOwn(RANK_TIER, craft[1]) && Object.hasOwn(CRAFTER, craft[2])) return { kind: "skill", key: skillKey(CRAFTER[craft[2]], RANK_TIER[craft[1]]), classId: null };
   const rank = /^Rank (\d+)$/.exec(name);
   const n = rank ? Number(rank[1]) : 0;
   return n >= 1 && n <= 14 ? { kind: "pvp_rank", key: String(n), classId: null } : null;

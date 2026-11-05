@@ -422,7 +422,7 @@ test("milestoneOf maps Master <Class>, Journeyman/Expert/Artisan <crafter> and R
   assert.deepEqual(milestoneOf("Expert Tailor"), { kind: "skill", key: "tailoring:225", classId: null });
   assert.deepEqual(milestoneOf("Artisan Leatherworker"), { kind: "skill", key: "leatherworking:300", classId: null });
   assert.deepEqual(milestoneOf("Rank 14"), { kind: "pvp_rank", key: "14", classId: null });
-  for (const name of ["Master Spelunker", "Master of Alterac Valley", "Apprentice Tailor", "Expert Miner", "Grand Master Tailor", "Rank 15", "Novice Mage"]) {
+  for (const name of ["Master Spelunker", "Master of Alterac Valley", "Apprentice Tailor", "Expert Miner", "Grand Master Tailor", "Rank 15", "Novice Mage", "Journeyman constructor", "toString Tailor"]) {
     assert.equal(milestoneOf(name), null, name);
   }
 });

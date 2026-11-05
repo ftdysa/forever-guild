@@ -107,7 +107,11 @@ export class ProgressStore {
   constructor(private db: Database.Database) {
     db.exec(SCHEMA);
     // Skill milestones were keyed by bare profession id when 300 was the only tier.
-    db.exec("UPDATE milestones SET key = key || ':300' WHERE kind = 'skill' AND instr(key, ':') = 0");
+    // A rolled-back deploy can re-insert bare rows beside migrated ones, so keep the migrated row on conflict.
+    db.transaction(() => {
+      db.exec("UPDATE OR IGNORE milestones SET key = key || ':300' WHERE kind = 'skill' AND instr(key, ':') = 0");
+      db.exec("DELETE FROM milestones WHERE kind = 'skill' AND instr(key, ':') = 0");
+    })();
   }
 
   // Merges `patch` into the character's row for `day`. Fields the patch omits keep today's value,
