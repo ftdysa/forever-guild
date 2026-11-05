@@ -49,7 +49,7 @@ const BZ = { BLIZZARD_CLIENT_ID: "id", BLIZZARD_CLIENT_SECRET: "secret", BLIZZAR
 test("blizzard config is optional and defaults to us / classic1x", () => {
   assert.equal(loadConfig({ GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32) }).blizzard, undefined);
   const c = loadConfig({ GUILD_PASSPHRASE: PW, SESSION_SECRET: "s".repeat(32), ...BZ });
-  assert.deepEqual(c.blizzard, { clientId: "id", clientSecret: "secret", region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal" });
+  assert.deepEqual(c.blizzard, { clientId: "id", clientSecret: "secret", region: "us", namespace: "classic1x", realm: "doomhowl", guild: "fatal", ranks: [] });
 });
 
 test("blizzard config rejects partial setup, bad region/namespace, and non-slug names", () => {
@@ -59,6 +59,14 @@ test("blizzard config rejects partial setup, bad region/namespace, and non-slug 
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_NAMESPACE: "wotlk" }), /BLIZZARD_NAMESPACE/);
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_REALM: "Doom Howl" }), /slugs/);
   assert.throws(() => loadConfig({ ...env, ...BZ, BLIZZARD_GUILD: "../x" }), /slugs/);
+});
+
+test("GUILD_RANKS names ranks from 0, and is validated", () => {
+  const env = { ...BASE, ...BZ };
+  assert.deepEqual(loadConfig({ ...env, GUILD_RANKS: " Guild Master, Officer ,Member" }).blizzard?.ranks, ["Guild Master", "Officer", "Member"]);
+  assert.throws(() => loadConfig({ ...env, GUILD_RANKS: "a,,b" }), /GUILD_RANKS/);
+  assert.throws(() => loadConfig({ ...env, GUILD_RANKS: "x".repeat(33) }), /GUILD_RANKS/);
+  assert.throws(() => loadConfig({ ...env, GUILD_RANKS: Array(11).fill("r").join(",") }), /GUILD_RANKS/);
 });
 
 test("forever needs no realm and rejects one", () => {
@@ -71,6 +79,7 @@ test("forever needs no realm and rejects one", () => {
     namespace: "forever",
     realm: undefined,
     guild: "old-school",
+    ranks: [],
   });
   assert.throws(() => loadConfig({ ...env, BLIZZARD_CLIENT_ID: "id" }), /also set: BLIZZARD_CLIENT_SECRET, BLIZZARD_GUILD$/);
   assert.throws(() => loadConfig({ ...env, ...fz, BLIZZARD_REALM: "doomhowl" }), /BLIZZARD_REALM must be empty/);

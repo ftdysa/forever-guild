@@ -24,6 +24,8 @@ primary_region = 'iad'
   BLIZZARD_REGION = 'us'
   BLIZZARD_NAMESPACE = 'forever'
   BLIZZARD_GUILD = 'old-school'
+  # Names for guild ranks 0,1,2…; Blizzard's API only gives numbers. Unnamed ranks show as "Rank N".
+  # GUILD_RANKS = 'Guild Master,Officer,Veteran,Member,Alt,Initiate'
   SITE_URL = 'https://old-school.fly.dev'
 
 [[mounts]]

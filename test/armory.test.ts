@@ -41,10 +41,18 @@ test("inferSpec gives up on ties, empty builds, unknown trees, or unknown class"
 
 test("mapProfessions maps known names and drops the rest", () => {
   const raw = {
-    primaries: [{ profession: { name: "Herbalism" } }, { profession: { name: "Inscription" } }, { profession: { name: "Alchemy" } }],
+    primaries: [
+      { profession: { name: "Herbalism" }, tiers: [{ skill_points: 120, max_skill_points: 150 }] },
+      { profession: { name: "Inscription" } },
+      { profession: { name: "Alchemy" } },
+    ],
     secondaries: [{ profession: { name: "Cooking" } }, { profession: { name: "Archaeology" } }],
   };
-  assert.deepEqual(mapProfessions(raw), { primary: ["herbalism", "alchemy"], secondary: ["cooking"] });
+  assert.deepEqual(mapProfessions(raw), {
+    primary: ["herbalism", "alchemy"],
+    secondary: ["cooking"],
+    skills: { herbalism: { skill: 120, max: 150 } },
+  });
   assert.equal(mapProfessions(null), null);
 });
 
@@ -117,8 +125,9 @@ test("all of a character's icons come from one media search", async () => {
   const { armory, fake } = setup();
   await armory.character("jaina");
   assert.equal(searches(fake.calls), 1);
-  // per-character profile calls: summary, equipment, specializations, media, statistics
-  assert.equal(fake.calls.filter((c) => c.startsWith(BASE)).length, 5);
+  // per-character profile calls, one parallel round after the summary: equipment, specializations,
+  // media, statistics, reputations, pvp-summary (no professions or achievements on Classic Era)
+  assert.equal(fake.calls.filter((c) => c.startsWith(BASE)).length, 7);
 });
 
 test("cached icons (including items without one) are not searched again", async () => {
@@ -159,7 +168,7 @@ test("icon search failures degrade to null and fill in once Blizzard recovers", 
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.gear[0].icon, ICONS[22498]);
   assert.equal(searches(fake.calls), 2);
-  assert.equal(profileCalls(fake.calls), 6);
+  assert.equal(profileCalls(fake.calls), 8);
 
   // Remaining blanks are items known to have no icon: no further searches.
   advance(20 * 60 * 1000);
@@ -186,7 +195,7 @@ test("character professions are mapped where the endpoint exists (not Classic Er
   const routes = characterFixture();
   routes[`${BASE}/jaina/professions`] = { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] };
   const { armory } = setup(routes, { ...cfg, namespace: "retail" });
-  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [] });
+  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
 });
 
 test("Classic Era skips the professions call entirely", async () => {
@@ -209,14 +218,14 @@ test("characters are served from cache for 15 minutes, keyed case-insensitively"
 test("after 15 minutes an unchanged character costs one conditional call", async () => {
   const { armory, fake, advance } = setup();
   const first = await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 5);
+  assert.equal(profileCalls(fake.calls), 7);
   advance(30 * 24 * 60 * 60 * 1000); // long gaps are fine: there is no hard expiry
   assert.deepEqual(await armory.character("jaina"), first);
-  assert.equal(profileCalls(fake.calls), 6);
+  assert.equal(profileCalls(fake.calls), 8);
   // the 304 renewed freshness, so the next view within 15 minutes is free
   advance(5 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 6);
+  assert.equal(profileCalls(fake.calls), 8);
 });
 
 test("a character who played since is refetched in full", async () => {
@@ -227,11 +236,11 @@ test("a character who played since is refetched in full", async () => {
   fake.state.lastModified = "Fri, 16 Oct 2026 12:00:00 GMT";
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.itemLevel, 71);
-  assert.equal(profileCalls(fake.calls), 10);
+  assert.equal(profileCalls(fake.calls), 14);
   // and the new Last-Modified is what gets revalidated next
   advance(20 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 11);
+  assert.equal(profileCalls(fake.calls), 15);
 });
 
 test("unknown characters are rechecked with one call after 15 minutes", async () => {
@@ -300,7 +309,7 @@ test("forever resolves characters through the guild roster's slugs", async () =>
   const c = await armory.character("JAINA");
   assert.equal(c?.name, "Jaina");
   assert.equal(c?.surname, "Proudmoore");
-  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [] });
+  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
   assert.ok(fake.calls.includes(FOREVER));
 });
 
@@ -328,6 +337,46 @@ test("forever: concurrent lookups share one roster fetch", async () => {
   const { armory, fake } = setup(foreverFixture(), foreverCfg);
   await Promise.all([armory.character("nobody"), armory.character("thrall"), armory.character("x")]);
   assert.equal(fake.calls.filter((c) => c.endsWith("/roster")).length, 1);
+});
+
+test("forever: Legacy progress counts completed Legacy achievements, found by reward text", async () => {
+  const routes = foreverFixture();
+  Object.assign(routes, {
+    "/data/wow/achievement-category/index": { categories: [{ id: 1 }, { id: 2 }] },
+    "/data/wow/achievement-category/1": { achievements: [{ id: 100 }, { id: 101 }, { id: 200 }] },
+    "/data/wow/achievement-category/2": { achievements: [{ id: 100 }, { id: 300 }] },
+    // 100 and 101 are faction copies of one challenge; 200 is legacy too; 300 is not.
+    "/data/wow/achievement/100": { id: 100, name: "Novice Mage", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/101": { id: 101, name: "Novice Mage", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/200": { id: 200, name: "Journeyman Tailor", reward_description: "Earn 1 Legacy Point." },
+    "/data/wow/achievement/300": { id: 300, name: "Explore Durotar" },
+    [`${FOREVER}/achievements`]: {
+      achievements: [
+        { id: 100, completed_timestamp: 1 },
+        { id: 200 }, // in progress
+        { id: 300, completed_timestamp: 1 }, // not a Legacy challenge
+      ],
+    },
+  });
+  const { armory, fake } = setup(routes, foreverCfg);
+  assert.deepEqual((await armory.character("jaina"))?.legacy, { earned: 1, total: 2 });
+  // definitions are cached: a second character costs no static calls
+  const before = fake.calls.filter((c) => c.startsWith("/data/wow/achievement")).length;
+  await armory.legacyAchievements();
+  assert.equal(fake.calls.filter((c) => c.startsWith("/data/wow/achievement")).length, before);
+});
+
+test("forever: a failed Legacy lookup leaves legacy null but the character loads", async () => {
+  const { armory } = setup(foreverFixture(), foreverCfg);
+  const c = await armory.character("jaina");
+  assert.equal(c?.name, "Jaina");
+  assert.equal(c?.legacy, null);
+});
+
+test("Classic Era has no Legacy and spends no achievement calls", async () => {
+  const { armory, fake } = setup();
+  assert.equal((await armory.character("jaina"))?.legacy, null);
+  assert.ok(!fake.calls.some((c) => c.includes("achievement")));
 });
 
 test("forever: an unknown guild surfaces as an error, and a new guild never sees old data", async () => {

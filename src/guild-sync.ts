@@ -1,12 +1,30 @@
 import type { FastifyBaseLogger } from "fastify";
-import { ROSTER_TTL_MS, type ArmoryService } from "./armory.js";
+import { mapLimit } from "./concurrency.js";
+import { ROSTER_TTL_MS, type ArmoryService, type CharacterInfo } from "./armory.js";
 import { BlizzardError } from "./blizzard.js";
-import type { Member, MemberStore, RosterMember } from "./db.js";
+import type { Member, MemberArmory, MemberStore, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
 
 // Every member's spec and professions are re-read once per roster refresh. Character lookups are
 // cached and revalidated with one conditional call, so refreshing unchanged characters is cheap.
 const REFRESH_MS = ROSTER_TTL_MS;
+// Characters read from the armory at once. Each is one parallel round of profile calls (or a
+// single 304 when unchanged), so this caps in-flight Blizzard requests at roughly 4 × 9.
+const ENRICH_CONCURRENCY = 4;
+
+function snapshot(c: CharacterInfo): MemberArmory {
+  return {
+    race: c.race,
+    gender: c.gender,
+    faction: c.faction,
+    title: c.title,
+    itemLevel: c.itemLevel,
+    lastLogin: c.lastLogin,
+    achievementPoints: c.achievementPoints,
+    legacy: c.legacy,
+    skills: c.professions?.skills ?? {},
+  };
+}
 
 // Keeps the members table in step with the guild roster.
 //
@@ -50,7 +68,7 @@ export class GuildSync {
   }
 
   private async afterSync(added: Member[], seeding: boolean): Promise<void> {
-    for (const m of added) await this.enrich(m);
+    await mapLimit(added, ENRICH_CONCURRENCY, (m) => this.enrich(m));
     // Seeding just read everyone, so the refresh below has nothing new to find.
     if (seeding) this.refreshedAt = this.now();
     if (!seeding && this.notifier) {
@@ -58,7 +76,7 @@ export class GuildSync {
     }
     if (this.now() - this.refreshedAt < REFRESH_MS) return;
     this.refreshedAt = this.now();
-    for (const m of this.store.list()) await this.enrich(m);
+    await mapLimit(this.store.list(), ENRICH_CONCURRENCY, (m) => this.enrich(m));
   }
 
   // One character's spec and professions. Failures are logged and retried on the next refresh.
@@ -72,6 +90,7 @@ export class GuildSync {
         // null: this flavour's armory has no professions (Classic Era), so keep what we have.
         primary: c.professions?.primary ?? m.primaryProfessions,
         secondary: c.professions?.secondary ?? m.secondaryProfessions,
+        armory: snapshot(c),
       });
     } catch (err) {
       if (!(err instanceof BlizzardError)) throw err;

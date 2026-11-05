@@ -41,6 +41,7 @@ test("status reports the configured guild without secrets", async () => {
     namespace: "classic1x",
     realm: "doomhowl",
     guild: "fatal",
+    ranks: [],
     wowheadItemUrl: "https://www.wowhead.com/classic/item=",
   });
   assert.doesNotMatch(res.body, /shh/);

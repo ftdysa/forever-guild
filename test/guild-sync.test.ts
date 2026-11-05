@@ -66,6 +66,9 @@ test("the first sync seeds the roster silently and fills spec and professions fr
   assert.equal(thrall.mainSpec, "restoration");
   assert.deepEqual(thrall.primaryProfessions, ["alchemy", "herbalism"]);
   assert.deepEqual(thrall.secondaryProfessions, ["cooking"]);
+  // the armory snapshot is stored for the roster's extra columns
+  assert.equal(thrall.armory?.lastLogin, null);
+  assert.deepEqual(thrall.armory?.skills, {});
   assert.deepEqual(joined, []);
 });
 
