@@ -42,9 +42,12 @@ test("inferSpec gives up on ties, empty builds, unknown trees, or unknown class"
 test("mapProfessions maps known names and drops the rest", () => {
   const raw = {
     primaries: [
-      { profession: { name: "Herbalism" }, tiers: [{ skill_points: 120, max_skill_points: 150 }] },
-      { profession: { name: "Inscription" } },
-      { profession: { name: "Alchemy" } },
+      {
+        profession: { name: "Herbalism" },
+        tiers: [{ skill_points: 120, max_skill_points: 150, known_recipes: [{ id: 2366 }] }],
+      },
+      { profession: { name: "Inscription" }, tiers: [{ known_recipes: [{ id: 999 }] }] },
+      { profession: { name: "Alchemy" }, tiers: [{ known_recipes: [{ id: 2329 }, { id: 2330 }] }] },
     ],
     secondaries: [{ profession: { name: "Cooking" } }, { profession: { name: "Archaeology" } }],
   };
@@ -52,6 +55,8 @@ test("mapProfessions maps known names and drops the rest", () => {
     primary: ["herbalism", "alchemy"],
     secondary: ["cooking"],
     skills: { herbalism: { skill: 120, max: 150 } },
+    // professions we don't track (Inscription) contribute no recipes
+    recipes: [2366, 2329, 2330],
   });
   assert.equal(mapProfessions(null), null);
 });
@@ -195,7 +200,7 @@ test("character professions are mapped where the endpoint exists (not Classic Er
   const routes = characterFixture();
   routes[`${BASE}/jaina/professions`] = { primaries: [{ profession: { name: "Tailoring" } }], secondaries: [] };
   const { armory } = setup(routes, { ...cfg, namespace: "retail" });
-  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
+  assert.deepEqual((await armory.character("jaina"))?.professions, { primary: ["tailoring"], secondary: [], skills: {}, recipes: [] });
 });
 
 test("Classic Era skips the professions call entirely", async () => {
@@ -309,7 +314,7 @@ test("forever resolves characters through the guild roster's slugs", async () =>
   const c = await armory.character("JAINA");
   assert.equal(c?.name, "Jaina");
   assert.equal(c?.surname, "Proudmoore");
-  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [], skills: {} });
+  assert.deepEqual(c?.professions, { primary: ["tailoring"], secondary: [], skills: {}, recipes: [] });
   assert.ok(fake.calls.includes(FOREVER));
 });
 

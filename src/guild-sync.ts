@@ -23,6 +23,7 @@ function snapshot(c: CharacterInfo): MemberArmory {
     achievementPoints: c.achievementPoints,
     legacy: c.legacy,
     skills: c.professions?.skills ?? {},
+    recipes: c.professions?.recipes ?? [],
   };
 }
 

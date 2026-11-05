@@ -26,7 +26,10 @@ function routes() {
       specialization_groups: [{ is_active: true, specializations: [{ specialization_name: "Restoration", spent_points: 11 }] }],
     },
     [`${char("thrall-durotan")}/professions`]: {
-      primaries: [{ profession: { name: "Alchemy" } }, { profession: { name: "Herbalism" } }],
+      primaries: [
+        { profession: { name: "Alchemy" }, tiers: [{ skill_points: 60, max_skill_points: 75, known_recipes: [{ id: 2329 }] }] },
+        { profession: { name: "Herbalism" } },
+      ],
       secondaries: [{ profession: { name: "Cooking" } }],
     },
     [char("jaina-proudmoore")]: { name: "Jaina", level: 12, character_class: { id: 8 } },
@@ -68,7 +71,8 @@ test("the first sync seeds the roster silently and fills spec and professions fr
   assert.deepEqual(thrall.secondaryProfessions, ["cooking"]);
   // the armory snapshot is stored for the roster's extra columns
   assert.equal(thrall.armory?.lastLogin, null);
-  assert.deepEqual(thrall.armory?.skills, {});
+  assert.deepEqual(thrall.armory?.skills, { alchemy: { skill: 60, max: 75 } });
+  assert.deepEqual(thrall.armory?.recipes, [2329]);
   assert.deepEqual(joined, []);
 });
 

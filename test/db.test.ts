@@ -11,7 +11,7 @@ const thrall: RosterMember = { name: "Thrall", surname: "Durotan", slug: "thrall
 const jaina: RosterMember = { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", classId: "mage", level: 12, rank: 3 };
 const details = { mainSpec: "frost", backupClass: "priest", backupSpec: "holy", sweatFactor: "world-first", levelingPref: "duo", notes: "portals" };
 
-const ARMORY = { race: "Human", gender: "Female", faction: "alliance" as const, title: null, itemLevel: 12, lastLogin: null, achievementPoints: 0, legacy: { earned: 1, total: 65 }, skills: {} };
+const ARMORY = { race: "Human", gender: "Female", faction: "alliance" as const, title: null, itemLevel: 12, lastLogin: null, achievementPoints: 0, legacy: { earned: 1, total: 65 }, skills: {}, recipes: [] };
 
 let db: Database.Database;
 let store: MemberStore;

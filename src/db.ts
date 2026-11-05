@@ -18,6 +18,8 @@ export interface MemberArmory {
   // Forever only; account-wide.
   legacy: { earned: number; total: number } | null;
   skills: Professions["skills"];
+  // Known recipe ids (crafting directory).
+  recipes: number[];
 }
 
 export interface Member extends MemberDetails {
