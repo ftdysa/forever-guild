@@ -7,6 +7,8 @@ import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache, MemberStore, openDatabase, type Member } from "../src/db.js";
 import type { DiscordNotifier } from "../src/discord.js";
 import { GuildSync } from "../src/guild-sync.js";
+import { ProgressRecorder } from "../src/progress.js";
+import { ProgressStore } from "../src/progress-store.js";
 import { sessionCookieName } from "../src/routes/auth.js";
 import { fakeBlizzard, iconSearch } from "./fake-blizzard.js";
 
@@ -51,10 +53,15 @@ function setup() {
   const store = new MemberStore(db);
   const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn, undefined, async () => {}), new ArmoryCache(db), cfg, () => t);
   const joined: Member[] = [];
-  const notifier = { memberJoined: async (m: Member) => void joined.push(m) } as unknown as DiscordNotifier;
-  const sync = new GuildSync(armory, store, notifier, quietLog, () => t);
+  const firsts: [string, string[]][] = [];
+  const notifier = {
+    memberJoined: async (m: Member) => void joined.push(m),
+    guildFirsts: async (who: { name: string }, claims: string[]) => void firsts.push([who.name, claims]),
+  } as unknown as DiscordNotifier;
+  const progress = new ProgressStore(db);
+  const sync = new GuildSync(armory, store, notifier, quietLog, () => t, new ProgressRecorder(progress, notifier, () => t));
   return {
-    r, fake, store, sync, joined,
+    r, fake, store, sync, joined, progress, firsts,
     advance: (ms: number) => (t += ms),
     roster: (rows: unknown[]) => (r[ROSTER] = { members: rows }),
   };
@@ -163,4 +170,25 @@ test("without Blizzard config there is no sync and the roster is empty", async (
   } finally {
     await app.close();
   }
+});
+test("progress: every sync snapshots the roster, and a level-60 ding on a later day is an announced guild first", async () => {
+  const { r, fake, sync, advance, roster, progress, firsts } = setup();
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(progress.snapshots().map((s) => [s.name, s.day, s.level]), [["Thrall", "1970-01-01", 20]]);
+  assert.deepEqual(progress.milestones(), []);
+
+  advance(24 * 60 * 60 * 1000);
+  const login = 86_400_000 + 500_000;
+  roster([rosterRow("Thrall", "thrall-durotan", 7, 60)]);
+  r[char("thrall-durotan")] = { name: "Thrall", surname: "Durotan", level: 60, character_class: { id: 7 }, race: { name: "Orc" }, last_login_timestamp: login };
+  fake.state.lastModified = "Tue, 15 Sep 2026 00:00:00 GMT"; // they played: the armory refetches
+  await sync.sync();
+  await sync.idle();
+
+  assert.deepEqual(progress.snapshots().map((s) => [s.day, s.level, s.race]), [["1970-01-01", 20, null], ["1970-01-02", 60, "Orc"]]);
+  assert.deepEqual(progress.milestones().map((m) => [m.name, m.kind, m.key, m.source, m.reachedAt]), [
+    ["Thrall", "level", "60", "observed", new Date(login).toISOString()],
+  ]);
+  assert.deepEqual(firsts, [["Thrall", ["First to reach level 60", "First Shaman to reach level 60", "First Orc to reach level 60"]]]);
 });

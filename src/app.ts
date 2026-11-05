@@ -12,6 +12,8 @@ import { ArmoryService, ROSTER_TTL_MS } from "./armory.js";
 import { BlizzardClient, type FetchFn } from "./blizzard.js";
 import { DiscordNotifier } from "./discord.js";
 import { GuildSync } from "./guild-sync.js";
+import { ProgressRecorder } from "./progress.js";
+import { ProgressStore } from "./progress-store.js";
 import { gameData } from "./game-data.js";
 import { SessionStore } from "./sessions.js";
 import { loginRoute, logoutRoute, readSessionToken } from "./routes/auth.js";
@@ -27,6 +29,7 @@ declare module "fastify" {
     armory: ArmoryService | null;
     notifier: DiscordNotifier | null;
     guildSync: GuildSync | null;
+    progress: ProgressStore;
     recipes: RecipeCatalog | null;
     sessions: SessionStore;
     clientIp: (req: FastifyRequest) => string;
@@ -66,7 +69,11 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   app.decorate("armory", armory);
   const notifier = config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null;
   app.decorate("notifier", notifier);
-  const guildSync = armory ? new GuildSync(armory, app.store, notifier, app.log) : null;
+  const progress = new ProgressStore(db);
+  app.decorate("progress", progress);
+  const guildSync = armory
+    ? new GuildSync(armory, app.store, notifier, app.log, undefined, new ProgressRecorder(progress, notifier))
+    : null;
   app.decorate("guildSync", guildSync);
   // The crafting directory exists only on Forever (its static data has the recipe catalog we read).
   const recipes = client && bz?.namespace === "forever" ? new RecipeCatalog(client, new ArmoryCache(db), bz.region) : null;
