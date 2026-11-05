@@ -130,7 +130,8 @@ test("mostFirsts counts first holders across every category group, current membe
       m("Ann", "level", "60", "mage", "2026-11-02"), // byLevel 60, byClassLevel mage 60, byRace Orc
       m("Bob", "level", "60", "warrior", "2026-11-03"), // byClassLevel warrior 60 only
       m("Bob", "level", "10", "warrior", "2026-10-01"), // byLevel 10, byClassLevel warrior 10
-      m("Bob", "skill", "mining", "warrior", "2026-11-01"), // bySkill
+      m("Bob", "skill", "mining:75", "warrior", "2026-11-01"), // bySkill mining 75
+      m("Bob", "skill", "mining:300", "warrior", "2026-11-01"), // bySkill mining 300
       m("Bob", "pvp_rank", "1", "warrior", "2026-11-01"), // byPvpRank
       m("Gone", "level", "20", "rogue", "2026-10-01"),
     ],
@@ -138,7 +139,7 @@ test("mostFirsts counts first holders across every category group, current membe
     TODAY,
   );
   assert.deepEqual(r.leaderboard.mostFirsts, [
-    { name: "Bob", class: "warrior", count: 5 },
+    { name: "Bob", class: "warrior", count: 6 },
     { name: "Ann", class: "mage", count: 3 },
   ]);
 });

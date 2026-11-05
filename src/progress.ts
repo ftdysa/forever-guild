@@ -1,7 +1,7 @@
 import type { CharacterInfo } from "./armory.js";
 import type { Member, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
-import { claimedFirsts, computeFirsts, crossingDay, detectMilestones, LEVEL_MILESTONES } from "./milestones.js";
+import { bracketsFor, claimedFirsts, computeFirsts, crossingDay, detectMilestones } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
 
 const DAY_MS = 86_400_000;
@@ -46,18 +46,13 @@ export class ProgressRecorder {
     const today = this.store.get(name, day);
     if (!today) return;
 
-    const level = Math.max(m.level, c.level);
-    // Per threshold the character meets now: the last earlier-day snapshot below it, and the first
-    // later one at or above it (today's row at the latest), bracketing when it was crossed.
-    const met = LEVEL_MILESTONES.filter((n) => level >= n).map((n) => [String(n), n, this.store.latestBelowLevel(name, day, n)] as const);
-    const priorBelowLevel = Object.fromEntries(met.map(([k, , below]) => [k, below]));
-    const firstAtOrAboveLevel = Object.fromEntries(met.map(([k, n, below]) => [k, below && this.store.firstAtOrAbove(name, below.day, n)]));
+    const state = { classId: m.mainClass, race: today.race, level: Math.max(m.level, c.level), skills: today.skills, pvpRank: today.pvpRank };
     const input = {
       name,
-      state: { classId: m.mainClass, race: today.race, level, skills: today.skills, pvpRank: today.pvpRank },
+      state,
       prior,
-      priorBelowLevel,
-      firstAtOrAboveLevel,
+      // Per level/skill milestone met: the snapshots either side of when it was crossed.
+      brackets: bracketsFor(state, this.store.history(name), day),
       launchMember: this.store.firstDay(name) === this.store.trackingSince(),
       existing: this.store.milestonesFor(name),
       achievements: c.milestoneAchievements,

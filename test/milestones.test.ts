@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  claimedFirsts, computeFirsts, crossingDay, detectMilestones, LEVEL_MILESTONES, milestonesMet,
-  type AchievementMilestone, type CharacterState, type DetectInput,
+  bracketsFor, claimedFirsts, computeFirsts, crossingDay, detectMilestones, LEVEL_MILESTONES, milestonesMet, SKILL_TIERS,
+  type AchievementMilestone, type Bracket, type CharacterState, type DetectInput,
 } from "../src/milestones.js";
 import type { Milestone, Snapshot } from "../src/progress-store.js";
 
@@ -11,20 +11,28 @@ const LOGIN = "2026-11-10T08:00:00.000Z";
 const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   name: "Grom", day: "2026-11-09", classId: "warrior", race: "Orc", level: 59, pvpRank: 0, honorableKills: 0, skills: {}, ...over,
 });
+// A bracket with only the snapshot below: the crossing is first seen today.
+const below = (over: Partial<Snapshot> = {}, reached: Snapshot | null = null): Bracket => ({ below: snap(over), reached });
 const state = (over: Partial<CharacterState> = {}): CharacterState => ({ classId: "warrior", race: "Orc", level: 60, skills: {}, pvpRank: 0, ...over });
 // Most tests are about level 60, so 10-50 count as already recorded unless a test says otherwise.
 const lower = ["10", "20", "30", "40", "50"].map((key) => ({ kind: "level" as const, key }));
 const input = (over: Partial<DetectInput> = {}): DetectInput => ({
-  name: "Grom", state: state(), prior: snap(), priorBelowLevel: { "60": snap() }, firstAtOrAboveLevel: {}, launchMember: false, achievements: [], lastLogin: LOGIN, now: NOW, ...over,
+  name: "Grom", state: state(), prior: snap(), brackets: { "level:60": below() }, launchMember: false, achievements: [], lastLogin: LOGIN, now: NOW, ...over,
   existing: [...lower, ...(over.existing ?? [])],
 });
 const brief = (ms: { kind: string; key: string; source: string; reachedAt: string | null }[]) => ms.map((m) => [m.kind, m.key, m.source, m.reachedAt]);
 const ranks = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: "pvp_rank" as const, key: String(i + 1) }));
 
-test("milestonesMet: level 60, 300 skill per profession, every PvP rank up to the current one", () => {
+test("milestonesMet: levels, every skill tier reached per profession in game order, every PvP rank up to the current one", () => {
+  assert.deepEqual(SKILL_TIERS, [75, 150, 225, 300]);
   assert.deepEqual(
-    milestonesMet(state({ classId: "mage", race: "Gnome", skills: { tailoring: 300, enchanting: 299 }, pvpRank: 3 })).map((m) => `${m.kind}:${m.key}`),
-    ["level:10", "level:20", "level:30", "level:40", "level:50", "level:60", "skill:tailoring", "pvp_rank:1", "pvp_rank:2", "pvp_rank:3"],
+    milestonesMet(state({ classId: "mage", race: "Gnome", skills: { tailoring: 300, enchanting: 224, alchemy: 74 }, pvpRank: 3 })).map((m) => `${m.kind}:${m.key}`),
+    [
+      "level:10", "level:20", "level:30", "level:40", "level:50", "level:60",
+      "skill:enchanting:75", "skill:enchanting:150",
+      "skill:tailoring:75", "skill:tailoring:150", "skill:tailoring:225", "skill:tailoring:300",
+      "pvp_rank:1", "pvp_rank:2", "pvp_rank:3",
+    ],
   );
   assert.deepEqual(milestonesMet(state({ level: 9, race: null, pvpRank: null })), []);
 });
@@ -32,18 +40,18 @@ test("milestonesMet: level 60, 300 skill per profession, every PvP rank up to th
 test("milestonesMet: every level milestone at or below the current level, ascending, before skills and PvP", () => {
   assert.deepEqual(LEVEL_MILESTONES, [10, 20, 30, 40, 50, 60]);
   assert.deepEqual(
-    milestonesMet(state({ level: 37, skills: { mining: 300 }, pvpRank: 1 })).map((m) => `${m.kind}:${m.key}`),
-    ["level:10", "level:20", "level:30", "skill:mining", "pvp_rank:1"],
+    milestonesMet(state({ level: 37, skills: { mining: 80 }, pvpRank: 1 })).map((m) => `${m.kind}:${m.key}`),
+    ["level:10", "level:20", "level:30", "skill:mining:75", "pvp_rank:1"],
   );
 });
 
 test("a crossing of a lower threshold is observed; earlier thresholds already recorded are not re-added", () => {
-  const i = input({ state: state({ level: 31 }), prior: snap({ level: 29 }), priorBelowLevel: { "30": snap({ level: 29 }) } });
+  const i = input({ state: state({ level: 31 }), prior: snap({ level: 29 }), brackets: { "level:30": below({ level: 29 }) } });
   assert.deepEqual(brief(detectMilestones({ ...i, existing: lower.slice(0, 2) })), [["level", "30", "observed", LOGIN]]);
 });
 
 test("a launch member first seen at 35 gets 10, 20, 30 as before_tracking; a newcomer gets before_joining", () => {
-  const base = { state: state({ level: 35 }), prior: null, priorBelowLevel: {} };
+  const base = { state: state({ level: 35 }), prior: null, brackets: {} };
   assert.deepEqual(brief(detectMilestones({ ...input({ ...base, launchMember: true }), existing: [] })), [
     ["level", "10", "before_tracking", null], ["level", "20", "before_tracking", null], ["level", "30", "before_tracking", null],
   ]);
@@ -59,12 +67,14 @@ test("a crossing since an earlier day is observed and dated by last login", () =
   assert.deepEqual([m.name, m.classId, m.race], ["Grom", "warrior", "Orc"]);
 });
 
-test("observed falls back to the crossing day (levels) or now (skills, PvP) when last login is missing, before the earlier snapshot, or in the future", () => {
-  const s = state({ skills: { mining: 300 } });
+test("observed falls back to the crossing day (levels, skills) or now (PvP) when last login is missing, before the earlier snapshot, or in the future", () => {
+  const s = state({ skills: { mining: 75 }, pvpRank: 1 });
+  const brackets = { "level:60": below(), "skill:mining:75": below({ skills: { mining: 70 } }) };
   for (const lastLogin of [null, "2026-11-08T23:00:00.000Z", "2026-11-11T00:00:00.000Z"]) {
-    assert.deepEqual(brief(detectMilestones(input({ state: s, lastLogin }))), [
+    assert.deepEqual(brief(detectMilestones(input({ state: s, brackets, lastLogin }))), [
       ["level", "60", "observed", "2026-11-10T00:00:00.000Z"],
-      ["skill", "mining", "observed", NOW],
+      ["skill", "mining:75", "observed", "2026-11-10T00:00:00.000Z"],
+      ["pvp_rank", "1", "observed", NOW],
     ]);
   }
 });
@@ -74,15 +84,31 @@ test("milestones already recorded are not recorded again", () => {
 });
 
 test("skills and PvP are observed only when the earlier snapshot had armory data", () => {
-  const s = state({ level: 59, skills: { mining: 300 }, pvpRank: 2 });
-  assert.deepEqual(brief(detectMilestones(input({ state: s, prior: snap({ skills: { mining: 290 }, pvpRank: 1 }), existing: ranks(1) }))), [
-    ["skill", "mining", "observed", LOGIN],
+  const s = state({ level: 59, skills: { mining: 80 }, pvpRank: 2 });
+  const brackets = { "skill:mining:75": below({ skills: { mining: 70 } }) };
+  assert.deepEqual(brief(detectMilestones(input({ state: s, prior: snap({ skills: { mining: 70 }, pvpRank: 1 }), brackets, existing: ranks(1) }))), [
+    ["skill", "mining:75", "observed", LOGIN],
     ["pvp_rank", "2", "observed", LOGIN],
   ]);
   // race null: the armory was never read, so the earlier values are unknown
-  assert.deepEqual(brief(detectMilestones(input({ state: s, prior: snap({ race: null, pvpRank: null }), existing: ranks(1) }))), [
-    ["skill", "mining", "before_joining", null],
+  const unread = { "skill:mining:75": below({ race: null }) };
+  assert.deepEqual(brief(detectMilestones(input({ state: s, prior: snap({ race: null, pvpRank: null }), brackets: unread, existing: ranks(1) }))), [
+    ["skill", "mining:75", "before_joining", null],
     ["pvp_rank", "2", "before_joining", null],
+  ]);
+});
+
+test("a skill tier crossing is dated between the last snapshot below it and the first at or above it", () => {
+  const s = state({ level: 59, skills: { alchemy: 230 } });
+  const brackets = {
+    "skill:alchemy:75": below({ day: "2026-11-01", skills: { alchemy: 60 } }, snap({ day: "2026-11-02", skills: { alchemy: 160 } })),
+    "skill:alchemy:150": below({ day: "2026-11-01", skills: { alchemy: 60 } }, snap({ day: "2026-11-02", skills: { alchemy: 160 } })),
+    "skill:alchemy:225": below({ day: "2026-11-02", skills: { alchemy: 160 } }, snap({ day: "2026-11-04", skills: { alchemy: 230 } })),
+  };
+  assert.deepEqual(brief(detectMilestones(input({ state: s, brackets, lastLogin: "2026-11-04T20:00:00.000Z" }))), [
+    ["skill", "alchemy:75", "observed", "2026-11-02T00:00:00.000Z"],
+    ["skill", "alchemy:150", "observed", "2026-11-02T00:00:00.000Z"],
+    ["skill", "alchemy:225", "observed", "2026-11-04T20:00:00.000Z"],
   ]);
 });
 
@@ -97,7 +123,7 @@ test("launch members use a matching achievement's date, else before_tracking", (
     { kind: "level", key: "60", classId: "warrior", completedAt: "2026-10-01T00:00:00.000Z" },
     { kind: "pvp_rank", key: "3", classId: null, completedAt: "2026-10-02T00:00:00.000Z" },
   ];
-  assert.deepEqual(brief(detectMilestones(input({ state: state({ pvpRank: 3 }), prior: null, priorBelowLevel: {}, launchMember: true, achievements }))), [
+  assert.deepEqual(brief(detectMilestones(input({ state: state({ pvpRank: 3 }), prior: null, brackets: {}, launchMember: true, achievements }))), [
     ["level", "60", "achievement", "2026-10-01T00:00:00.000Z"],
     ["pvp_rank", "1", "before_tracking", null],
     ["pvp_rank", "2", "before_tracking", null],
@@ -106,7 +132,7 @@ test("launch members use a matching achievement's date, else before_tracking", (
 });
 
 test("a launch member already at 60 on an earlier day (armory failed then) still gets launch treatment", () => {
-  assert.deepEqual(brief(detectMilestones(input({ prior: snap({ level: 60 }), priorBelowLevel: {}, launchMember: true }))), [["level", "60", "before_tracking", null]]);
+  assert.deepEqual(brief(detectMilestones(input({ prior: snap({ level: 60 }), brackets: {}, launchMember: true }))), [["level", "60", "before_tracking", null]]);
 });
 
 test("an achievement for another class, or dated in the future, is not trusted", () => {
@@ -114,12 +140,12 @@ test("an achievement for another class, or dated in the future, is not trusted",
     { kind: "level", key: "60", classId: "druid", completedAt: "2026-10-01T00:00:00.000Z" },
     { kind: "level", key: "60", classId: "warrior", completedAt: "2026-12-01T00:00:00.000Z" },
   ] as AchievementMilestone[]) {
-    assert.deepEqual(brief(detectMilestones(input({ prior: null, priorBelowLevel: {}, launchMember: true, achievements: [a] }))), [["level", "60", "before_tracking", null]]);
+    assert.deepEqual(brief(detectMilestones(input({ prior: null, brackets: {}, launchMember: true, achievements: [a] }))), [["level", "60", "before_tracking", null]]);
   }
 });
 
 test("newcomers already past a milestone are before_joining", () => {
-  assert.deepEqual(brief(detectMilestones(input({ prior: null, priorBelowLevel: {} }))), [["level", "60", "before_joining", null]]);
+  assert.deepEqual(brief(detectMilestones(input({ prior: null, brackets: {} }))), [["level", "60", "before_joining", null]]);
 });
 
 const ms = (name: string, kind: Milestone["kind"], key: string, source: Milestone["source"], reachedAt: string | null, over: Partial<Milestone> = {}): Milestone => ({
@@ -146,6 +172,7 @@ test("firsts: earliest dated holder first, ties by name, three at most; launch r
   assert.deepEqual(f.byClassLevel.mage["60"], { holders: [], atLaunch: [] });
   assert.deepEqual(Object.keys(f.byRace), ["Orc"]);
   assert.equal(Object.keys(f.bySkill).length, 12);
+  assert.deepEqual(Object.keys(f.bySkill.alchemy), ["75", "150", "225", "300"]);
   assert.deepEqual(Object.keys(f.byPvpRank), Array.from({ length: 14 }, (_, i) => String(i + 1)));
 });
 
@@ -183,8 +210,12 @@ test("claimedFirsts lists only the categories the milestone now leads", () => {
     "First Shaman to reach level 60",
     "First Orc to reach level 60",
   ]);
-  const tailor = ms("Grom", "skill", "tailoring", "observed", "2026-11-05T00:00:00.000Z");
+  const tailor = ms("Grom", "skill", "tailoring:300", "observed", "2026-11-05T00:00:00.000Z");
   assert.deepEqual(claimedFirsts(tailor, computeFirsts([tailor])), ["First to reach 300 Tailoring"]);
+  const alchemy = ms("Grom", "skill", "alchemy:150", "observed", "2026-11-05T00:00:00.000Z");
+  assert.deepEqual(claimedFirsts(alchemy, computeFirsts([alchemy])), ["First to reach 150 Alchemy"]);
+  assert.equal(computeFirsts([alchemy]).bySkill.alchemy["150"].holders[0].name, "Grom");
+  assert.deepEqual(computeFirsts([alchemy]).bySkill.alchemy["300"].holders, []);
   const rank = ms("Grom", "pvp_rank", "7", "observed", "2026-11-05T00:00:00.000Z");
   assert.deepEqual(claimedFirsts(rank, computeFirsts([rank])), ["First to reach PvP rank 7"]);
 });
@@ -192,7 +223,7 @@ test("claimedFirsts lists only the categories the milestone now leads", () => {
 test("a level crossing is dated between the last snapshot below and the first at or above it", () => {
   const below = snap({ day: "2026-11-01", level: 18 });
   const at = snap({ day: "2026-11-02", level: 22 });
-  const base = { state: state({ level: 31 }), prior: snap({ day: "2026-11-09", level: 31 }), priorBelowLevel: { "20": below }, firstAtOrAboveLevel: { "20": at } };
+  const base = { state: state({ level: 31 }), prior: snap({ day: "2026-11-09", level: 31 }), brackets: { "level:20": { below, reached: at } } };
   const twenty = (lastLogin: string | null) =>
     brief(detectMilestones({ ...input({ ...base, lastLogin }), existing: [{ kind: "level", key: "10" }, { kind: "level", key: "30" }] }));
   // last login today is long after the crossing: date it by the first snapshot at or above
@@ -203,11 +234,40 @@ test("a level crossing is dated between the last snapshot below and the first at
   assert.deepEqual(twenty("2026-11-01T03:00:00.000Z"), [["level", "20", "observed", "2026-11-01T03:00:00.000Z"]]);
 });
 
-test("crossingDay: levels use the first snapshot at or above, else today; skills and PvP today", () => {
-  const i = input({ firstAtOrAboveLevel: { "60": snap({ day: "2026-11-08", level: 60 }) } });
+test("crossingDay: levels and skills use the first snapshot at or above, else today; PvP today", () => {
+  const i = input({
+    brackets: {
+      "level:60": below({}, snap({ day: "2026-11-08", level: 60 })),
+      "skill:mining:150": below({ day: "2026-11-05" }, snap({ day: "2026-11-07", skills: { mining: 150 } })),
+    },
+  });
   assert.equal(crossingDay({ kind: "level", key: "60" }, i), "2026-11-08");
   assert.equal(crossingDay({ kind: "level", key: "50" }, i), "2026-11-10");
-  assert.equal(crossingDay({ kind: "skill", key: "mining" }, i), "2026-11-10");
+  assert.equal(crossingDay({ kind: "skill", key: "mining:150" }, i), "2026-11-07");
+  assert.equal(crossingDay({ kind: "skill", key: "mining:75" }, i), "2026-11-10");
+  assert.equal(crossingDay({ kind: "pvp_rank", key: "1" }, i), "2026-11-10");
+});
+
+test("bracketsFor: per level and skill milestone met, the latest earlier-day snapshot below it and the first later one at or above it", () => {
+  const history = [
+    snap({ day: "2026-11-01", level: 18, race: null, skills: {} }),
+    snap({ day: "2026-11-02", level: 22, skills: { alchemy: 60 } }),
+    snap({ day: "2026-11-03", level: 22, skills: { alchemy: 160 } }),
+    snap({ day: "2026-11-05", level: 31, skills: { alchemy: 230 } }),
+  ];
+  const b = bracketsFor(state({ level: 31, skills: { alchemy: 230 }, pvpRank: 2 }), history, "2026-11-05");
+  const days = Object.fromEntries(Object.entries(b).map(([id, x]) => [id, [x.below.day, x.reached?.day ?? null]]));
+  // level 10: never seen below it, so no bracket
+  assert.deepEqual(days, {
+    "level:20": ["2026-11-01", "2026-11-02"],
+    "level:30": ["2026-11-03", "2026-11-05"],
+    // 2026-11-01 had no armory data (race null), so it can't show a skill below a tier
+    "skill:alchemy:75": ["2026-11-02", "2026-11-03"],
+    "skill:alchemy:150": ["2026-11-02", "2026-11-03"],
+    "skill:alchemy:225": ["2026-11-03", "2026-11-05"],
+  });
+  // only earlier days count as "below"
+  assert.deepEqual(bracketsFor(state({ level: 31 }), [snap({ day: "2026-11-05", level: 5 })], "2026-11-05"), {});
 });
 
 test("claimedFirsts with an earlier view: a category that already had a dated holder is not claimed again", () => {

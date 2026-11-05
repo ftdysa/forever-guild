@@ -182,3 +182,69 @@ test("a category already announced is not announced again when a later-processed
   assert.equal(computeFirsts(store.milestones()).byLevel["20"].holders[0].name, "Bob");
   assert.deepEqual(posts, [["Ann", ["First to reach level 20"]]]);
 });
+
+const crafts = (skills: Record<string, number>) =>
+  ({ primary: Object.keys(skills), secondary: [], skills: Object.fromEntries(Object.entries(skills).map(([p, s]) => [p, { skill: s, max: 300 }])), recipes: [] }) as unknown as CharacterInfo["professions"];
+const skillRows = (ms: { kind: string; key: string; source: string; reachedAt: string | null; announced: boolean }[]) =>
+  ms.filter((m) => m.kind === "skill").map((m) => [m.key, m.source, m.reachedAt, m.announced]);
+
+test("a profession tier crossed since an earlier day is dated by last login and announced", async () => {
+  const { store, rec, posts, nextDay } = setup();
+  rec.recordRoster([roster("Grom", 5)]);
+  await rec.recordArmory(member("Grom", 5), info({ level: 5, professions: crafts({ alchemy: 140 }) }));
+  nextDay();
+  rec.recordRoster([roster("Grom", 5)]);
+  await rec.recordArmory(member("Grom", 5), info({ level: 5, professions: crafts({ alchemy: 160 }), lastLogin: "2026-11-06T08:00:00.000Z" }));
+  assert.deepEqual(skillRows(store.milestonesFor("Grom")), [
+    ["alchemy:150", "observed", "2026-11-06T08:00:00.000Z", true],
+    ["alchemy:75", "before_tracking", null, false],
+  ]);
+  assert.deepEqual(posts, [["Grom", ["First to reach 150 Alchemy"]]]);
+});
+
+test("deploy over skill history: old tier crossings are dated from snapshots and only fresh ones are announced", async () => {
+  const { store, rec, posts } = setup();
+  // Armory snapshots written before the 75/150/225 tiers existed: Ann's alchemy 60 -> 160 -> 230.
+  const at = (day: string, alchemy: number) => store.upsertSnapshot("Ann", day, { classId: "warrior", level: 5, race: "Orc", skills: { alchemy } });
+  at("2026-11-01", 60);
+  at("2026-11-02", 160);
+  at("2026-11-04", 230);
+  rec.recordRoster([roster("Ann", 5)]);
+  await rec.recordArmory(member("Ann", 5), info({ level: 5, professions: crafts({ alchemy: 230 }), lastLogin: "2026-11-05T09:00:00.000Z" }));
+  assert.deepEqual(skillRows(store.milestonesFor("Ann")), [
+    ["alchemy:150", "observed", "2026-11-02T00:00:00.000Z", false],
+    ["alchemy:225", "observed", "2026-11-04T00:00:00.000Z", true],
+    ["alchemy:75", "observed", "2026-11-02T00:00:00.000Z", false],
+  ]);
+  // 2026-11-02 is outside the two-day window; 2026-11-04 is inside it.
+  assert.deepEqual(posts, [["Ann", ["First to reach 225 Alchemy"]]]);
+});
+
+test("a launch member's profession tiers are backfilled from a Journeyman achievement; nothing is announced", async () => {
+  const { store, rec, posts } = setup();
+  rec.recordRoster([roster("Grom", 5)]);
+  await rec.recordArmory(member("Grom", 5), info({
+    level: 5,
+    professions: crafts({ alchemy: 160 }),
+    milestoneAchievements: [{ kind: "skill", key: "alchemy:150", classId: null, completedAt: "2026-10-01T00:00:00.000Z" }],
+  }));
+  assert.deepEqual(skillRows(store.milestonesFor("Grom")), [
+    ["alchemy:150", "achievement", "2026-10-01T00:00:00.000Z", false],
+    ["alchemy:75", "before_tracking", null, false],
+  ]);
+  assert.deepEqual(posts, []);
+});
+
+test("a newcomer who arrives with profession tiers gets them as before_joining", async () => {
+  const { store, rec, posts, nextDay } = setup();
+  rec.recordRoster([roster("Grom", 20)]);
+  nextDay();
+  rec.recordRoster([roster("Grom", 20), roster("Vet", 5)]);
+  await rec.recordArmory(member("Vet", 5), info({ level: 5, professions: crafts({ alchemy: 230 }) }));
+  assert.deepEqual(skillRows(store.milestonesFor("Vet")), [
+    ["alchemy:150", "before_joining", null, false],
+    ["alchemy:225", "before_joining", null, false],
+    ["alchemy:75", "before_joining", null, false],
+  ]);
+  assert.deepEqual(posts, []);
+});

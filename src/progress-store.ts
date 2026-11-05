@@ -106,6 +106,8 @@ const toMilestone = (r: MilestoneRow): Milestone => ({
 export class ProgressStore {
   constructor(private db: Database.Database) {
     db.exec(SCHEMA);
+    // Skill milestones were keyed by bare profession id when 300 was the only tier.
+    db.exec("UPDATE milestones SET key = key || ':300' WHERE kind = 'skill' AND instr(key, ':') = 0");
   }
 
   // Merges `patch` into the character's row for `day`. Fields the patch omits keep today's value,
@@ -155,20 +157,10 @@ export class ProgressStore {
     return r ? toSnapshot(r) : null;
   }
 
-  // The character's most recent row from a day before `day` whose level was under `level`.
-  latestBelowLevel(name: string, day: string, level: number): Snapshot | null {
-    const r = this.db
-      .prepare("SELECT * FROM member_snapshots WHERE character_name = ? AND day < ? AND level < ? ORDER BY day DESC LIMIT 1")
-      .get(name, day, level) as SnapshotRow | undefined;
-    return r ? toSnapshot(r) : null;
-  }
-
-  // The character's earliest row from a day after `afterDay` whose level was at least `level`.
-  firstAtOrAbove(name: string, afterDay: string, level: number): Snapshot | null {
-    const r = this.db
-      .prepare("SELECT * FROM member_snapshots WHERE character_name = ? AND day > ? AND level >= ? ORDER BY day LIMIT 1")
-      .get(name, afterDay, level) as SnapshotRow | undefined;
-    return r ? toSnapshot(r) : null;
+  // Every row for the character, oldest first.
+  history(name: string): Snapshot[] {
+    const rows = this.db.prepare("SELECT * FROM member_snapshots WHERE character_name = ? ORDER BY day").all(name) as SnapshotRow[];
+    return rows.map(toSnapshot);
   }
 
   firstDay(name: string): string | null {

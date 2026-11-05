@@ -104,7 +104,7 @@ function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Fi
     ...Object.values(firsts.byLevel),
     ...Object.values(firsts.byClassLevel).flatMap((levels) => Object.values(levels)),
     ...Object.values(firsts.byRace),
-    ...Object.values(firsts.bySkill),
+    ...Object.values(firsts.bySkill).flatMap((tiers) => Object.values(tiers)),
     ...Object.values(firsts.byPvpRank),
   ];
   for (const c of categories) {

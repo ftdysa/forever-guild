@@ -73,26 +73,21 @@ test("wipe clears both tables", () => {
   assert.deepEqual(s.milestones(), []);
 });
 
-test("latestBelowLevel finds the latest earlier row under the level, skipping rows at or above it", () => {
+test("history lists a character's rows, any case, oldest first", () => {
   const s = fresh();
-  s.upsertSnapshot("Grom", "2026-11-05", { classId: "warrior", level: 58 });
-  s.upsertSnapshot("Grom", "2026-11-06", { level: 59 });
-  s.upsertSnapshot("Grom", "2026-11-07", { level: 60 });
-  s.upsertSnapshot("Grom", "2026-11-08", { level: 60 });
-  assert.equal(s.latestBelowLevel("grom", "2026-11-09", 60)?.day, "2026-11-06");
-  assert.equal(s.latestBelowLevel("Grom", "2026-11-06", 60)?.day, "2026-11-05");
-  assert.equal(s.latestBelowLevel("Grom", "2026-11-05", 60), null);
-  assert.equal(s.latestBelowLevel("Nobody", "2026-11-09", 60), null);
+  s.upsertSnapshot("Grom", "2026-11-03", { classId: "warrior", level: 22 });
+  s.upsertSnapshot("Grom", "2026-11-01", { classId: "warrior", level: 18 });
+  s.upsertSnapshot("Arg", "2026-11-02", { classId: "rogue", level: 5 });
+  assert.deepEqual(s.history("grom").map((r) => [r.name, r.day, r.level]), [["Grom", "2026-11-01", 18], ["Grom", "2026-11-03", 22]]);
+  assert.deepEqual(s.history("Nobody"), []);
 });
 
-test("firstAtOrAbove finds the earliest row after a day at or above the level", () => {
-  const s = fresh();
-  s.upsertSnapshot("Grom", "2026-11-01", { classId: "warrior", level: 18 });
-  s.upsertSnapshot("Grom", "2026-11-02", { level: 19 });
-  s.upsertSnapshot("Grom", "2026-11-03", { level: 22 });
-  s.upsertSnapshot("Grom", "2026-11-05", { level: 31 });
-  assert.equal(s.firstAtOrAbove("grom", "2026-11-01", 20)?.day, "2026-11-03");
-  assert.equal(s.firstAtOrAbove("Grom", "2026-11-03", 20)?.day, "2026-11-05");
-  assert.equal(s.firstAtOrAbove("Grom", "2026-11-01", 40), null);
-  assert.equal(s.firstAtOrAbove("Nobody", "2026-11-01", 20), null);
+test("bare profession skill keys from before tiers become <profession>:300, once", () => {
+  const db = openDatabase(":memory:");
+  const s = new ProgressStore(db);
+  s.addMilestone({ ...sixty, kind: "skill", key: "alchemy" });
+  s.addMilestone(sixty);
+  new ProgressStore(db);
+  new ProgressStore(db);
+  assert.deepEqual(s.milestones().map((m) => [m.kind, m.key]), [["level", "60"], ["skill", "alchemy:300"]]);
 });

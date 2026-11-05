@@ -62,7 +62,7 @@ export function firstsGroups(firsts, game) {
   return [
     { heading: "Levels", cards: LEVEL_KEYS.map((l) => card(`level-${l}`, `Level ${l}`, firsts.byLevel[l])) },
     { heading: "Races", cards: Object.keys(firsts.byRace).sort().map((r) => card(`race-${r}`, r, firsts.byRace[r])) },
-    { heading: "Professions", cards: game.professions.map((p) => card(`skill-${p.id}`, `${p.name} 300`, firsts.bySkill[p.id])) },
+    { heading: "Professions", cards: game.professions.map((p) => card(`skill-${p.id}`, `${p.name} 300`, firsts.bySkill[p.id]["300"])) },
     {
       heading: "PvP ranks",
       cards: Object.keys(firsts.byPvpRank)

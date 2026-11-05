@@ -56,7 +56,7 @@ const makeFirsts = () => {
     byLevel: Object.fromEntries(LEVELS.map((l) => [l, empty])),
     byClassLevel: Object.fromEntries(CLASSES.map((c) => [c.id, Object.fromEntries(LEVELS.map((l) => [l, empty]))])),
     byRace: { Orc: empty, Gnome: empty },
-    bySkill: Object.fromEntries(PROFESSIONS.map((p) => [p.id, empty])),
+    bySkill: Object.fromEntries(PROFESSIONS.map((p) => [p.id, Object.fromEntries(["75", "150", "225", "300"].map((t) => [t, empty]))])),
     byPvpRank: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [String(i + 1), empty])),
   };
 };
@@ -70,6 +70,7 @@ test("firstsGroups orders levels, races, professions and PvP ranks", () => {
   assert.deepEqual(groups[0].cards.map((c) => c.title), ["Level 10", "Level 20", "Level 30", "Level 40", "Level 50", "Level 60"]);
   assert.deepEqual(groups[1].cards.map((c) => c.title), ["Gnome", "Orc"]);
   assert.equal(groups[2].cards[0].title, "Alchemy 300");
+  assert.deepEqual([groups[2].cards[0].holders, groups[2].cards[0].atLaunch], [[], []]);
   assert.deepEqual([groups[3].cards[6].title, groups[3].cards[6].rank], ["Rank 7", 7]);
 });
 
