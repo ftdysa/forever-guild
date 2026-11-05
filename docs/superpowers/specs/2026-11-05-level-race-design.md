@@ -94,11 +94,11 @@ calls, except that the character's achievements, already fetched on Forever
 for Legacy progress, are now also returned for backfill.
 
 1. **Roster pass** (`syncRoster`): upsert today's snapshot for every member
-   with `level` and `class`, and run crossing detection for `level/60`.
-   Characters below 10 are tracked here only.
+   with `level` and `class`. It only writes snapshots; it detects no
+   milestones. Characters below 10 are tracked here only.
 2. **Armory refresh** (`enrich`): upsert today's snapshot with `race`,
-   `pvp_rank`, `honorable_kills` and `skills`, then run crossing detection
-   for skills and PvP ranks.
+   `pvp_rank`, `honorable_kills` and `skills`, then run all crossing
+   detection (`level/60`, skills and PvP ranks).
 
 `CharacterInfo.pvp` is already read; it is added to `MemberArmory` alongside
 the raw achievement list `{ id, completedAt }[]` needed for backfill (not
@@ -109,7 +109,9 @@ stored in the member row; passed to the milestone recorder).
 For each threshold the character meets now and has no milestone row for:
 
 - **Previously seen**: for `level`, the character has a stored level below
-  the threshold; for `skill` / `pvp_rank`, the character has an earlier
+  the threshold (the comparison snapshot is the latest earlier-day snapshot
+  with level below 60, so a roster pass and an armory pass on different days
+  cannot misclassify a ding); for `skill` / `pvp_rank`, the character has an earlier
   snapshot with armory data (`race` not null). Record `observed`,
   `reached_at` = `lastLogin` if present and later than that earlier
   snapshot's day start, else now.
@@ -119,9 +121,8 @@ For each threshold the character meets now and has no milestone row for:
   satisfies the milestone (a "Master Druid" timestamp only counts for a
   level-60 Druid), and the timestamp is not in the future, record
   `achievement` with that timestamp; otherwise `before_tracking` with
-  `reached_at` null. The roster pass leaves first-sighting `level/60` to the
-  armory refresh, which has the achievements, so a refresh that fails on
-  launch day simply resolves on a later one.
+  `reached_at` null. A refresh that fails on launch day simply resolves on a
+  later one.
 - **First sighting, newcomer** (first snapshot day after `trackingSince`):
   record `before_joining`, `reached_at` null.
 
