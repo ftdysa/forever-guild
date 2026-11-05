@@ -515,7 +515,15 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 .lb-list { margin: 0; padding-left: 22px; font-size: 14px; }
 .lb-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
 .lb-skill h4 { margin: 0 0 2px; font-family: var(--font-head); font-size: 13px; }
-.class-firsts td, .class-firsts th { white-space: nowrap; }
+.lb-table thead th { position: sticky; top: 0; background: #0f0d09; z-index: 1; }
+.lb-panel .cls .member, .class-firsts .cls .member { color: inherit; }
+.firsts-scroll { overflow-x: auto; max-width: 100%; }
+.class-firsts { width: 100%; min-width: 640px; table-layout: fixed; border-collapse: collapse; }
+.class-firsts th { text-align: left; padding: 6px 8px; font-size: 12px; font-variant: small-caps; color: var(--gold); border-bottom: 1px solid var(--gold-dim); }
+.class-firsts td { padding: 8px; border-bottom: 1px solid rgba(107, 90, 51, 0.35); vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.class-firsts th:first-child, .class-firsts td:first-child { width: 14%; }
+.class-firsts th:not(:first-child), .class-firsts td:not(:first-child) { width: 14.33%; }
+.class-firsts .member { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 @media (max-width: 700px) {
   .lb-grid { grid-template-columns: 1fr; }
 }

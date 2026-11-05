@@ -183,18 +183,18 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
   const standings = lb.standings.length
     ? `<div class="lb-scroll"><table class="roster lb-table"><thead><tr><th>#</th><th>Character</th><th>Class</th><th>Race</th><th>Level</th><th>+7d</th></tr></thead><tbody>${lb.standings
         .map(
-          (r, i) => `<tr><td data-label="Rank">${i + 1}</td><td data-label="Character">${nameCell(r.name, r.class)}</td><td data-label="Class"><span class="cls" data-class="${esc(r.class)}">${esc(game.classes.find((c) => c.id === r.class)?.name ?? r.class)}</span></td><td data-label="Race">${esc(r.race)}</td><td data-label="Level">${r.level}</td><td data-label="+7d">${r.gained7d > 0 ? `+${r.gained7d}` : '<span class="muted">0</span>'}</td></tr>`,
+          (r, i) => `<tr><td data-label="Rank">${i + 1}</td><td data-label="Character">${nameCell(r.name, r.class)}</td><td data-label="Class"><span class="cls" data-class="${esc(r.class)}">${esc(game.classes.find((c) => c.id === r.class)?.name ?? r.class)}</span></td><td data-label="Race">${esc(r.race)}</td><td data-label="Level">${esc(r.level)}</td><td data-label="+7d">${r.gained7d > 0 ? `+${esc(r.gained7d)}` : '<span class="muted">0</span>'}</td></tr>`,
         )
         .join("")}</tbody></table></div>`
     : empty("No members tracked yet");
   const skills = game.professions
     .filter((p) => lb.skills[p.id]?.length)
-    .map((p) => `<div class="lb-skill"><h4>${esc(p.name)}</h4><ol class="lb-list">${lb.skills[p.id].map((r) => `<li>${nameCell(r.name, r.class)} <span class="muted">${r.skill}</span></li>`).join("")}</ol></div>`)
+    .map((p) => `<div class="lb-skill"><h4>${esc(p.name)}</h4><ol class="lb-list">${lb.skills[p.id].map((r) => `<li>${nameCell(r.name, r.class)} <span class="muted">${esc(r.skill)}</span></li>`).join("")}</ol></div>`)
     .join("");
   root.querySelector("#leaderboard").innerHTML = `
     <section class="lb-panel lb-wide"><h3>Level standings</h3>${standings}</section>
-    <section class="lb-panel"><h3>Fastest this week</h3>${list(lb.fastest, "No levels gained this week yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">+${r.gained7d} · level ${r.level}</span>`)}</section>
-    <section class="lb-panel"><h3>Most guild firsts</h3>${list(lb.mostFirsts, "No firsts claimed yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">${r.count}</span>`)}</section>
+    <section class="lb-panel"><h3>Fastest this week</h3>${list(lb.fastest, "No levels gained this week yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">+${esc(r.gained7d)} · level ${esc(r.level)}</span>`)}</section>
+    <section class="lb-panel"><h3>Most guild firsts</h3>${list(lb.mostFirsts, "No firsts claimed yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">${esc(r.count)}</span>`)}</section>
     <section class="lb-panel lb-wide"><h3>Profession skill</h3>${skills ? `<div class="lb-skills">${skills}</div>` : empty("No profession skills recorded yet")}</section>`;
 
   // Guild firsts
@@ -207,9 +207,9 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
     </article>`;
   const classTable = () => {
     const t = classLevelTable(data.firsts, game);
-    const cell = (h) => (h ? who(h.name) : '<span class="muted">—</span>');
-    return `<section class="firsts-group"><h3>Class firsts</h3><div class="lb-scroll"><table class="roster class-firsts"><thead><tr><th>Class</th>${t.levels.map((l) => `<th>${l}</th>`).join("")}</tr></thead><tbody>${t.rows
-      .map((r) => `<tr><td data-label="Class"><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h, i) => `<td data-label="Level ${t.levels[i]}">${cell(h)}</td>`).join("")}</tr>`)
+    const cell = (h, classId) => (h ? nameCell(h.name, classId) : '<span class="muted">—</span>');
+    return `<section class="firsts-group"><h3>Class firsts</h3><div class="firsts-scroll"><table class="class-firsts"><thead><tr><th>Class</th>${t.levels.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${t.rows
+      .map((r) => `<tr><td><span class="cls" data-class="${esc(r.classId)}">${esc(r.name)}</span></td>${r.cells.map((h, i) => `<td title="${h ? esc(h.name) : ""}">${cell(h, r.classId)}</td>`).join("")}</tr>`)
       .join("")}</tbody></table></div></section>`;
   };
   root.querySelector("#firsts").innerHTML = firstsGroups(data.firsts, game)
