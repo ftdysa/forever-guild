@@ -146,6 +146,9 @@ shows the gaps.
   fly ssh console -C "setpriv --reuid=node --regid=node --init-groups node dist/refresh-recipes.js"
   ```
 
+  The CLI has its own rate limiter, separate from the server's, so run it when the server
+  is not building the catalog (e.g. not right after a deploy) to stay under Blizzard's limit.
+
 ## Security notes
 
 - Serve behind a TLS reverse proxy for anything beyond localhost.

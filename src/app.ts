@@ -69,7 +69,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   const guildSync = armory ? new GuildSync(armory, app.store, notifier, app.log) : null;
   app.decorate("guildSync", guildSync);
   // The crafting directory exists only on Forever (its static data has the recipe catalog we read).
-  const recipes = bz?.namespace === "forever" && client ? new RecipeCatalog(client, new ArmoryCache(db), bz.region) : null;
+  const recipes = client && bz?.namespace === "forever" ? new RecipeCatalog(client, new ArmoryCache(db), bz.region) : null;
   app.decorate("recipes", recipes);
   app.decorate("sessions", new SessionStore(db, config.guildPassphrase, config.sessionSecret));
   app.decorate("clientIp", (req: FastifyRequest) => {
@@ -120,7 +120,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
       },
     },
   });
-  // The recipe catalog is ~400 KB of JSON; compression brings it to ~60 KB.
+  // The recipe catalog is ~758 KB of JSON; compression brings it to ~78 KB.
   app.register(fastifyCompress, { global: true, threshold: 1024 });
   app.register(fastifyCookie, { secret: config.sessionSecret });
   app.register(fastifyRateLimit, { global: false, keyGenerator: (req) => app.clientIp(req) });

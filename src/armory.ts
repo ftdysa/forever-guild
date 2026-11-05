@@ -419,7 +419,7 @@ export class ArmoryService {
   async character(name: string): Promise<CharacterInfo | null> {
     const base = await this.characterPath(name.toLowerCase());
     if (!base) return null;
-    // Keyed by API path (realm or slug included). v4: path-based keys; entries carry Last-Modified.
+    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes.
     const key = `${this.keyPrefix}:character:v6:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;

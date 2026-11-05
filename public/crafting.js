@@ -63,7 +63,7 @@ export function renderCrafting(root, data, state, { esc, characterName, itemUrl 
       : '<span class="muted">— nobody yet</span>';
     const reagents = recipe.reagents
       .map((r) => {
-        const text = `${link(itemUrl(r.itemId), r.name, esc)} ×${r.quantity}`;
+        const text = `${link(itemUrl(r.itemId), r.name, esc)} ×${Number(r.quantity)}`;
         return reagentHits.includes(r.itemId) ? `<mark>${text}</mark>` : text;
       })
       .join(" · ");
