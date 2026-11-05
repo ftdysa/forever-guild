@@ -523,6 +523,8 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 }
 .lb-panel .cls .member, .class-firsts .cls .member { color: inherit; }
 .firsts-scroll { overflow-x: auto; max-width: 100%; }
+/* Dark-theme scrollbars for the scrollable leaderboard and firsts tables. */
+.lb-scroll, .firsts-scroll { scrollbar-color: var(--gold-dim) transparent; }
 .class-firsts { width: 100%; min-width: 640px; table-layout: fixed; border-collapse: collapse; }
 .class-firsts th { text-align: left; padding: 6px 8px; font-size: 12px; font-variant: small-caps; color: var(--gold); border-bottom: 1px solid var(--gold-dim); }
 .class-firsts td { padding: 8px; border-bottom: 1px solid rgba(107, 90, 51, 0.35); vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
