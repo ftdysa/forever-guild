@@ -112,8 +112,6 @@ export const LEVELING_PREFS: Choice[] = [
   { id: "orgy", name: "Orgy" },
 ];
 
-export const PRIMARY_IDS: string[] = PROFESSIONS.filter((p) => p.kind === "primary").map((p) => p.id);
-export const SECONDARY_IDS: string[] = PROFESSIONS.filter((p) => p.kind === "secondary").map((p) => p.id);
 
 export function findClass(id: string): GameClass | undefined {
   return CLASSES.find((c) => c.id === id);

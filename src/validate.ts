@@ -1,31 +1,19 @@
-import { findClass, findSpec, LEVELING_PREFS, PRIMARY_IDS, SECONDARY_IDS, SWEAT_FACTORS, type Choice } from "./game-data.js";
+import { findClass, findSpec, LEVELING_PREFS, SWEAT_FACTORS, type Choice } from "./game-data.js";
 
-export interface MemberInput {
-  characterName: string;
-  mainClass: string;
-  mainSpec: string;
+// The fields people edit; everything else on a member comes from the guild roster and armory.
+export interface MemberDetails {
+  mainSpec: string | null;
   backupClass: string | null;
   backupSpec: string | null;
-  primaryProfessions: string[];
-  secondaryProfessions: string[];
   sweatFactor: string | null;
   levelingPref: string | null;
   notes: string;
 }
 
-export type ValidationResult = { ok: true; value: MemberInput } | { ok: false; errors: string[] };
+export type ValidationResult = { ok: true; value: MemberDetails } | { ok: false; errors: string[] };
 
 export const NAME_RE = /^\p{L}{2,24}$/u;
 const NOTES_MAX = 280;
-const SECONDARY_MAX = 3;
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string");
-}
-
-function distinct(arr: string[]): boolean {
-  return new Set(arr).size === arr.length;
-}
 
 /** Optional choice: missing/null/"" → null; otherwise must be one of `choices`. */
 function optionalChoice(v: unknown, choices: Choice[]): { ok: boolean; value: string | null } {
@@ -34,30 +22,24 @@ function optionalChoice(v: unknown, choices: Choice[]): { ok: boolean; value: st
   return { ok: false, value: null };
 }
 
-export function validateMember(input: unknown): ValidationResult {
+const optionalString = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
+
+// `mainClass` is the member's synced class; specs are checked against it.
+export function validateDetails(input: unknown, mainClass: string): ValidationResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return { ok: false, errors: ["payload must be an object"] };
   }
   const raw = input as Record<string, unknown>;
   const errors: string[] = [];
 
-  const characterName = typeof raw.characterName === "string" ? raw.characterName.trim() : "";
-  if (!NAME_RE.test(characterName)) errors.push("characterName must be 2-24 letters");
-
-  const mainClass = typeof raw.mainClass === "string" ? raw.mainClass : "";
-  const mainSpec = typeof raw.mainSpec === "string" ? raw.mainSpec : "";
-  if (!findClass(mainClass)) errors.push("mainClass is not a known class");
-  else if (!findSpec(mainClass, mainSpec)) errors.push("mainSpec does not belong to mainClass");
-
-  if (raw.backupClass !== undefined && raw.backupClass !== null && typeof raw.backupClass !== "string") {
-    errors.push("backupClass must be a string or null");
+  for (const k of ["mainSpec", "backupClass", "backupSpec"]) {
+    if (raw[k] !== undefined && raw[k] !== null && typeof raw[k] !== "string") errors.push(`${k} must be a string or null`);
   }
-  if (raw.backupSpec !== undefined && raw.backupSpec !== null && typeof raw.backupSpec !== "string") {
-    errors.push("backupSpec must be a string or null");
-  }
+  const mainSpec = optionalString(raw.mainSpec);
+  if (mainSpec !== null && !findSpec(mainClass, mainSpec)) errors.push("mainSpec does not belong to the main class");
 
-  const backupClass: string | null = typeof raw.backupClass === "string" && raw.backupClass !== "" ? raw.backupClass : null;
-  let backupSpec: string | null = typeof raw.backupSpec === "string" && raw.backupSpec !== "" ? raw.backupSpec : null;
+  const backupClass = optionalString(raw.backupClass);
+  let backupSpec = optionalString(raw.backupSpec);
   if (backupClass === null) {
     backupSpec = null;
   } else if (!findClass(backupClass)) {
@@ -68,22 +50,6 @@ export function validateMember(input: unknown): ValidationResult {
     errors.push("backupSpec does not belong to backupClass");
   } else if (backupClass === mainClass && backupSpec === mainSpec) {
     errors.push("backup cannot be the same class and spec as main");
-  }
-
-  const primaryProfessions = isStringArray(raw.primaryProfessions) ? raw.primaryProfessions : null;
-  if (
-    !primaryProfessions ||
-    primaryProfessions.length !== 2 ||
-    !distinct(primaryProfessions) ||
-    !primaryProfessions.every((p) => PRIMARY_IDS.includes(p))
-  ) {
-    errors.push("primaryProfessions must be exactly 2 distinct primary professions");
-  }
-
-  const secondaryRaw = raw.secondaryProfessions === undefined ? [] : raw.secondaryProfessions;
-  const secondaryProfessions = isStringArray(secondaryRaw) ? secondaryRaw : null;
-  if (!secondaryProfessions || secondaryProfessions.length > SECONDARY_MAX || !distinct(secondaryProfessions) || !secondaryProfessions.every((p) => SECONDARY_IDS.includes(p))) {
-    errors.push("secondaryProfessions must be distinct secondary professions");
   }
 
   const sweatFactor = optionalChoice(raw.sweatFactor, SWEAT_FACTORS);
@@ -103,17 +69,6 @@ export function validateMember(input: unknown): ValidationResult {
   if (errors.length > 0) return { ok: false, errors };
   return {
     ok: true,
-    value: {
-      characterName,
-      mainClass,
-      mainSpec,
-      backupClass,
-      backupSpec,
-      primaryProfessions: primaryProfessions as string[],
-      secondaryProfessions: secondaryProfessions as string[],
-      sweatFactor: sweatFactor.value,
-      levelingPref: levelingPref.value,
-      notes,
-    },
+    value: { mainSpec, backupClass, backupSpec, sweatFactor: sweatFactor.value, levelingPref: levelingPref.value, notes },
   };
 }

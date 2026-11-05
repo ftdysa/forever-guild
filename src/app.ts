@@ -7,9 +7,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Config } from "./config.js";
 import { ArmoryCache, MemberStore, openDatabase } from "./db.js";
-import { ArmoryService } from "./armory.js";
+import { ArmoryService, ROSTER_TTL_MS } from "./armory.js";
 import { BlizzardClient, type FetchFn } from "./blizzard.js";
 import { DiscordNotifier } from "./discord.js";
+import { GuildSync } from "./guild-sync.js";
 import { gameData } from "./game-data.js";
 import { SessionStore } from "./sessions.js";
 import { loginRoute, logoutRoute, readSessionToken } from "./routes/auth.js";
@@ -22,6 +23,7 @@ declare module "fastify" {
     store: MemberStore;
     armory: ArmoryService | null;
     notifier: DiscordNotifier | null;
+    guildSync: GuildSync | null;
     sessions: SessionStore;
     clientIp: (req: FastifyRequest) => string;
   }
@@ -34,6 +36,8 @@ export interface AppDeps {
   blizzardFetch?: FetchFn;
   // Replaces global fetch for Discord webhook calls (tests).
   discordFetch?: FetchFn;
+  // Background guild sync interval; 0 disables the timer (tests).
+  syncEveryMs?: number;
 }
 
 export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
@@ -48,17 +52,31 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   const db = openDatabase(config.dbPath);
   app.decorate("store", new MemberStore(db));
   const bz = config.blizzard;
-  app.decorate(
-    "armory",
-    bz ? new ArmoryService(new BlizzardClient(bz, deps.blizzardFetch), new ArmoryCache(db), bz) : null,
-  );
-  app.decorate("notifier", config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null);
+  const armory = bz ? new ArmoryService(new BlizzardClient(bz, deps.blizzardFetch), new ArmoryCache(db), bz) : null;
+  app.decorate("armory", armory);
+  const notifier = config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null;
+  app.decorate("notifier", notifier);
+  const guildSync = armory ? new GuildSync(armory, app.store, notifier, app.log) : null;
+  app.decorate("guildSync", guildSync);
   app.decorate("sessions", new SessionStore(db, config.guildPassphrase, config.sessionSecret));
   app.decorate("clientIp", (req: FastifyRequest) => {
     const fromHeader = config.clientIpHeader ? req.headers[config.clientIpHeader] : undefined;
     return typeof fromHeader === "string" && fromHeader !== "" ? fromHeader : req.ip;
   });
-  app.addHook("onClose", async () => db.close());
+  // Page loads sync too; the timer catches joins and level-ups while nobody is looking. It runs as
+  // often as the roster cache expires, so each tick can see a fresh roster.
+  let syncTimer: NodeJS.Timeout | undefined;
+  if (guildSync && deps.syncEveryMs !== 0) {
+    syncTimer = setInterval(() => {
+      guildSync.sync().catch((err: unknown) => app.log.warn({ err }, "scheduled guild sync failed"));
+    }, deps.syncEveryMs ?? ROSTER_TTL_MS);
+    syncTimer.unref();
+  }
+  app.addHook("onClose", async () => {
+    clearInterval(syncTimer);
+    await guildSync?.idle();
+    db.close();
+  });
 
   app.register(fastifyHelmet, {
     contentSecurityPolicy: {

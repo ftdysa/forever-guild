@@ -24,12 +24,16 @@ const TIMEOUT_MS = 5000;
 
 const nameOf = (list: { id: string; name: string }[], id: string) => list.find((x) => x.id === id)?.name ?? id;
 
-function classSpec(classId: string, specId: string): string {
-  return `${findClass(classId)?.name ?? classId} — ${findSpec(classId, specId)?.name ?? specId}`;
+function classSpec(classId: string, specId: string | null): string {
+  const cls = findClass(classId)?.name ?? classId;
+  return specId ? `${cls} — ${findSpec(classId, specId)?.name ?? specId}` : cls;
 }
 
 export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
-  const fields: EmbedField[] = [{ name: "Main", value: classSpec(m.mainClass, m.mainSpec), inline: true }];
+  const fields: EmbedField[] = [
+    { name: "Main", value: classSpec(m.mainClass, m.mainSpec), inline: true },
+    { name: "Level", value: String(m.level), inline: true },
+  ];
   if (m.backupClass && m.backupSpec) {
     fields.push({ name: "Backup", value: classSpec(m.backupClass, m.backupSpec), inline: true });
   }
@@ -43,7 +47,7 @@ export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
 
   const hex = findClass(m.mainClass)?.color ?? "#C0C0C0";
   return {
-    title: `${m.characterName} joined the roster`,
+    title: `${m.characterName} joined the guild`,
     ...(siteUrl ? { url: siteUrl } : {}),
     color: parseInt((COLOR_OVERRIDES[hex] ?? hex).slice(1), 16),
     fields,

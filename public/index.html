@@ -33,7 +33,6 @@
     <!-- Roster -->
     <section id="roster" class="hidden">
       <div class="toolbar">
-        <button id="add-btn" class="btn">Add Member</button>
         <button id="logout-btn" class="btn btn-ghost">Leave Hall</button>
       </div>
 
@@ -50,11 +49,12 @@
 
       <section id="roster-panel" class="panel" aria-label="Roster">
         <h2>Roster</h2>
-        <p id="empty-msg" class="muted hidden">No members yet. Be the first to sign the ledger.</p>
+        <p id="empty-msg" class="muted hidden">No guild members found yet.</p>
         <table id="roster-table" class="roster">
           <thead>
             <tr>
               <th>Character</th>
+              <th>Level</th>
               <th>Main</th>
               <th>Backup</th>
               <th>Primaries</th>
@@ -87,32 +87,20 @@
   <!-- Drawer -->
   <aside id="drawer" class="drawer hidden" aria-hidden="true">
     <div class="panel drawer-panel">
-      <h2 id="drawer-title">Add Member</h2>
+      <h2 id="drawer-title">Edit Member</h2>
+      <p id="drawer-synced" class="muted"></p>
       <form id="member-form">
         <input type="hidden" id="f-id" />
-        <label><span>Character name</span><input id="f-name" required maxlength="24" /></label>
 
         <fieldset>
           <legend>Main</legend>
-          <label><span>Class</span><select id="f-main-class" required></select></label>
-          <label><span>Spec</span><select id="f-main-spec" required></select></label>
+          <label><span>Spec</span><select id="f-main-spec"></select></label>
         </fieldset>
 
         <fieldset>
           <legend>Backup</legend>
           <label><span>Class</span><select id="f-backup-class"></select></label>
           <label><span>Spec</span><select id="f-backup-spec"></select></label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Primary professions</legend>
-          <label><span>First</span><select id="f-prim-1" required></select></label>
-          <label><span>Second</span><select id="f-prim-2" required></select></label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Secondary professions</legend>
-          <div id="f-secondaries" class="checks"></div>
         </fieldset>
 
         <fieldset>
@@ -132,18 +120,6 @@
       </form>
     </div>
   </aside>
-
-  <!-- Delete dialog -->
-  <dialog id="confirm" class="confirm">
-    <div class="panel">
-      <h2>Remove from roster?</h2>
-      <p id="confirm-text"></p>
-      <div class="drawer-actions">
-        <button type="button" id="confirm-cancel" class="btn btn-ghost">Keep</button>
-        <button type="button" id="confirm-ok" class="btn btn-danger">Remove</button>
-      </div>
-    </div>
-  </dialog>
 
 
   <!-- Armory dialog: paper doll modelled on Blizzard's character armory -->

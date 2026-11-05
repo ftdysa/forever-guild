@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CLASSES } from "../src/game-data.js";
 import { byCoverage, classOverview } from "../public/class-overview.js";
 
-const m = (characterName: string, mainClass: string, mainSpec: string, backupClass: string | null = null, backupSpec: string | null = null) => ({
+const m = (characterName: string, mainClass: string, mainSpec: string | null, backupClass: string | null = null, backupSpec: string | null = null) => ({
   characterName, mainClass, mainSpec, backupClass, backupSpec,
 });
 
@@ -42,9 +42,12 @@ test("groups mains and backups by class and spec, keeping member order", () => {
   assert.deepEqual(warrior.specs.find((s) => s.spec.id === "protection")!.backups, ["Pops"]);
 });
 
-test("ignores unknown class/spec pairs", () => {
-  const out = classOverview([m("Ghost", "deathknight", "blood"), m("Odd", "mage", "nope")], CLASSES);
-  assert.equal(out.reduce((n, c) => n + c.mainCount + c.backupCount, 0), 0);
+test("unknown classes are ignored; an unknown or missing spec still counts for its class", () => {
+  const out = classOverview([m("Ghost", "deathknight", "blood"), m("Odd", "mage", "nope"), m("New", "mage", null)], CLASSES);
+  const mage = out.find((c) => c.cls.id === "mage");
+  assert.equal(out.reduce((n, c) => n + c.mainCount + c.backupCount, 0), 2);
+  assert.equal(mage.mainCount, 2);
+  assert.ok(mage.specs.every((s) => s.mains.length === 0));
 });
 
 test("byCoverage sorts by mains, then backups, keeping class order for ties", () => {

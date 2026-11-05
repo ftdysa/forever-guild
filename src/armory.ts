@@ -16,8 +16,9 @@ const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
   11: "druid",
 };
 
-// Forever's guild roster maps names to name-surname slugs; refreshed often enough that new members show up quickly.
-const ROSTER_TTL_MS = 15 * 60 * 1000;
+// The guild roster drives the site's member list (and, on Forever, name-surname slugs), so it is
+// refreshed often enough that joins, leaves and level-ups show up quickly.
+export const ROSTER_TTL_MS = 15 * 60 * 1000;
 // Cached characters are served as-is for this long, then revalidated with one conditional
 // request (see character()). There is no hard expiry: unchanged characters stay cached.
 const CHARACTER_FRESH_MS = 15 * 60 * 1000;
@@ -93,9 +94,18 @@ export interface CharacterInfo {
   gear: GearItem[];
 }
 
+export interface RosterEntry {
+  name: string;
+  // Forever only: the name-surname slug the Profile API addresses the character by.
+  slug: string | null;
+  level: number;
+  classId: string | null;
+  rank: number;
+}
+
 // --- Raw Blizzard shapes (only the fields we read) ---
 interface RawRoster {
-  members: { character: { name: string; slug?: string } }[];
+  members: { character: { name: string; slug?: string; level: number; playable_class: { id: number } }; rank: number }[];
 }
 interface RawSummary {
   name: string;
@@ -279,24 +289,32 @@ export class ArmoryService {
     return this.cfg;
   }
 
+  // Every guild member, sorted by name. Keyed by realm and guild, so a new guild never sees old data.
+  roster(): Promise<RosterEntry[]> {
+    const { realm, guild } = this.cfg;
+    const path = realm ? `/data/wow/guild/${realm}/${guild}/roster` : `/data/wow/guild/${guild}/roster`;
+    return this.cached(`${this.keyPrefix}:roster:v2:${realm ?? ""}/${guild}`, ROSTER_TTL_MS, async () => {
+      const raw = await this.client.profile<RawRoster>(path);
+      if (!raw) throw new BlizzardError("guild not found");
+      return raw.members
+        .map(({ character: c, rank }) => ({
+          name: c.name,
+          slug: c.slug ?? null,
+          level: c.level,
+          classId: CLASS_BY_BLIZZARD_ID[c.playable_class.id] ?? null,
+          rank,
+        }))
+        .sort((x, y) => x.name.localeCompare(y.name));
+    });
+  }
+
   // Profile API path for a character, or null when Forever's guild roster doesn't know the name.
   // Forever has no realms: characters are addressed by a name-surname slug only the roster gives us,
   // so lookups are limited to guild members.
   private async characterPath(lower: string): Promise<string | null> {
     if (this.cfg.realm) return `/profile/wow/character/${this.cfg.realm}/${encodeURIComponent(lower)}`;
-    const slug = (await this.guildSlugs())[lower];
+    const slug = (await this.roster()).find((r) => r.name.toLowerCase() === lower)?.slug;
     return slug ? `/profile/wow/character/${encodeURIComponent(slug)}` : null;
-  }
-
-  // Lowercase name → slug for every guild member. Keyed by guild, so a new guild never sees old data.
-  private guildSlugs(): Promise<Record<string, string>> {
-    return this.cached(`${this.keyPrefix}:guild:${this.cfg.guild}:slugs`, ROSTER_TTL_MS, async () => {
-      const raw = await this.client.profile<RawRoster>(`/data/wow/guild/${this.cfg.guild}/roster`);
-      if (!raw) throw new BlizzardError("guild not found");
-      const slugs: Record<string, string> = {};
-      for (const { character } of raw.members) if (character.slug) slugs[character.name.toLowerCase()] = character.slug;
-      return slugs;
-    });
   }
 
   // `name` must already be validated as letters only.
