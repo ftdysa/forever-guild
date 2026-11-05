@@ -135,13 +135,14 @@ current and highest rank separately.
 
 ### Discord
 
-After recording an `observed` milestone, recompute the firsts it can affect
-(overall 60, its class, its race, its profession, its rank). If it is now
-the earliest in any of them, post one embed naming every first it claimed
-(e.g. "Grom is the first Warrior and first Orc to reach 60!") in the class
-colour, linking to `SITE_URL/#progress`. Set `announced = 1` whether or not
-delivery succeeds (best-effort, as for joins). Non-observed rows are never
-posted.
+After an armory refresh records `observed` milestones for a character,
+recompute the firsts they can affect (overall 60, class, race, profession,
+rank). If any of them is now the earliest in a category, post one embed for
+that character listing every first claimed in this refresh (e.g. "First to
+reach level 60", "First Orc to reach level 60"), in the class colour, linking
+to `SITE_URL/#progress`. Set `announced = 1` on the milestones that claimed
+something, whether or not delivery succeeds (best-effort, as for joins).
+Non-observed rows are never posted.
 
 ## API
 
@@ -171,8 +172,9 @@ posted.
 // Holder   = { name, class, current, reachedAt, source }
 ```
 
-- Series points are emitted only on days the value changed, plus the latest
-  day.
+- Series points are emitted on the first and last day and wherever the
+  value changes (both the last day before and the first day after a
+  change), so plateaus stay flat when drawn.
 - `holders` contains rows with a `reached_at` (`observed`, `achievement`),
   ordered by `reached_at`, ties by name. `atLaunch` lists `before_tracking`
   names. `before_joining` rows appear in neither.
@@ -193,8 +195,9 @@ separately from DOM code and unit tested from Node, like
 - Every character as a thin, low-contrast line (former members fainter).
 - Top 10 (highest current level; ties by who reached it first, then name)
   drawn thicker in class colour with an end-of-line name label.
-- Hover / keyboard focus on any line highlights it and shows name, level and
-  date. The Classes tab's class filter is reused to narrow the set; the top
+- Hovering any line highlights it with a native tooltip (name and level);
+  the top-10 lines are also keyboard-focusable (the rest are not, to avoid
+  100+ tab stops). The Classes tab's class filter is reused to narrow the set; the top
   10 is recomputed within the filter.
 - Only one snapshot so far: a short note ("Tracking started <date>; the race
   fills in as people level") instead of an empty chart.
