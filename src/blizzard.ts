@@ -18,8 +18,10 @@ const TOKEN_MARGIN_MS = 60_000;
 // parallel work (catalog build, guild sync, armory dialog) has headroom for latency jitter.
 const MAX_PER_SECOND = 50;
 const WINDOW_MS = 1000;
-// A 429 means we hit the limit anyway: back off and retry a few times before giving up.
-const MAX_429_RETRIES = 3;
+// Retries (shared budget) for 429s, transient 5xx and fetch rejections (network blip, timeout)
+// before giving up; each waits 1 s x attempt unless Retry-After says otherwise.
+const MAX_RETRIES = 3;
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const MAX_RETRY_AFTER_MS = 10_000;
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +31,13 @@ type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "name
 // Result of a conditional GET: unchanged since the given time, or the current body (null on 404)
 // with its Last-Modified for the next check.
 export type Conditional<T> = { modified: false } | { modified: true; body: T | null; lastModified: string | null };
+
+// Error code or name for diagnosis only; never the message, URL or headers.
+function causeLabel(err: unknown): string {
+  const cause = (err as { cause?: { code?: unknown } } | null)?.cause;
+  const label = cause?.code ?? (err as { code?: unknown } | null)?.code ?? (err as { name?: unknown } | null)?.name;
+  return typeof label === "string" && /^[\w.-]{1,40}$/.test(label) ? label : "unknown";
+}
 
 // Retry-After (seconds) when present and numeric, else 1s x attempt number.
 function retryDelayMs(res: Response, attempt: number): number {
@@ -120,10 +129,12 @@ export class BlizzardClient {
           headers: { ...headers, authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
-      } catch {
-        throw new BlizzardError("blizzard api unreachable");
+      } catch (err) {
+        if (attempt > MAX_RETRIES) throw new BlizzardError(`blizzard api unreachable (${causeLabel(err)})`);
+        await this.sleep(1000 * attempt);
+        continue;
       }
-      if (res.status !== 429 || attempt > MAX_429_RETRIES) return res;
+      if (!RETRY_STATUSES.has(res.status) || attempt > MAX_RETRIES) return res;
       await this.sleep(retryDelayMs(res, attempt));
     }
   }

@@ -40,6 +40,7 @@ const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public")
 export interface AppDeps {
   // Replaces global fetch for Blizzard calls (tests).
   blizzardFetch?: FetchFn;
+  blizzardSleep?: (ms: number) => Promise<void>;
   // Replaces global fetch for Discord webhook calls (tests).
   discordFetch?: FetchFn;
   // Background guild sync interval; 0 disables the timer (tests).
@@ -60,7 +61,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
   const db = openDatabase(config.dbPath);
   app.decorate("store", new MemberStore(db));
   const bz = config.blizzard;
-  const client = bz ? new BlizzardClient(bz, deps.blizzardFetch) : null;
+  const client = bz ? new BlizzardClient(bz, deps.blizzardFetch, undefined, deps.blizzardSleep) : null;
   const armory = bz && client ? new ArmoryService(client, new ArmoryCache(db), bz) : null;
   app.decorate("armory", armory);
   const notifier = config.discord ? new DiscordNotifier(config.discord, app.log, deps.discordFetch) : null;

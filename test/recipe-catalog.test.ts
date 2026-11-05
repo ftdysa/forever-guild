@@ -41,7 +41,7 @@ function setup(r = routes()) {
   const fake = fakeBlizzard(r);
   const db = openDatabase(":memory:");
   const cache = new ArmoryCache(db);
-  const client = new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn);
+  const client = new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn, undefined, async () => {});
   const catalog = new RecipeCatalog(client, cache, "us", () => (t += 1));
   return { fake, cache, client, catalog, db };
 }

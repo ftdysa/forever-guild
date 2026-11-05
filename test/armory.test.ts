@@ -12,7 +12,7 @@ const creds = { clientId: "id", clientSecret: "shh", region: "us", namespace: "c
 function setup(routes: Record<string, unknown> = characterFixture(), config: ConstructorParameters<typeof ArmoryService>[2] = cfg, cache = new ArmoryCache(new Database(":memory:"))) {
   let t = 1_000_000;
   const fake = fakeBlizzard(routes);
-  const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn);
+  const client = new BlizzardClient({ ...creds, namespace: config.namespace }, fake.fetchFn, undefined, async () => {});
   const armory = new ArmoryService(client, cache, config, () => t);
   return { fake, armory, cache, advance: (ms: number) => (t += ms) };
 }
@@ -155,7 +155,7 @@ test("icon searches are batched 100 ids at a time", async () => {
     if (url.pathname === "/data/wow/search/media") batchSizes.push((url.searchParams.get("id") ?? "").split("||").length);
     return fake.fetchFn(input, init);
   };
-  const armory = new ArmoryService(new BlizzardClient(creds, counting), new ArmoryCache(new Database(":memory:")), cfg);
+  const armory = new ArmoryService(new BlizzardClient(creds, counting, undefined, async () => {}), new ArmoryCache(new Database(":memory:")), cfg);
   await armory.character("jaina");
   assert.deepEqual(batchSizes, [100, 50]);
 });
@@ -167,18 +167,19 @@ test("icon search failures degrade to null and fill in once Blizzard recovers", 
   const c = await armory.character("jaina");
   assert.equal(c?.gear[0].icon, null);
   assert.equal(c?.gear[0].name, "Frostfire Circlet");
+  assert.equal(searches(fake.calls), 4); // the 503 is retried 3 times
 
   // Character unchanged (304), but its blank icons are retried rather than cached forever.
   routes["/data/wow/search/media"] = iconSearch;
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.gear[0].icon, ICONS[22498]);
-  assert.equal(searches(fake.calls), 2);
+  assert.equal(searches(fake.calls), 5);
   assert.equal(profileCalls(fake.calls), 8);
 
   // Remaining blanks are items known to have no icon: no further searches.
   advance(20 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(searches(fake.calls), 2);
+  assert.equal(searches(fake.calls), 5);
 });
 
 test("mapStats picks the best crit and tolerates missing data", () => {

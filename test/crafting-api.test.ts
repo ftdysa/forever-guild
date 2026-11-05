@@ -29,7 +29,7 @@ async function login(a: FastifyInstance) {
 async function start(blizzard: object | undefined, r = routes()) {
   const fake = fakeBlizzard(r);
   const app = buildApp({ ...base, ...(blizzard ? { blizzard } : {}) } as never, {
-    blizzardFetch: fake.fetchFn,
+    blizzardFetch: fake.fetchFn, blizzardSleep: async () => {},
     syncEveryMs: 0,
     recipeCheckEveryMs: 0,
   });
@@ -88,7 +88,7 @@ test("startup builds the catalog; the route joins crafters", async () => {
 test("building, then unavailable when the first build fails", async () => {
   const fake = fakeBlizzard(routes());
   fake.state.apiDown = true;
-  const app = buildApp({ ...base, blizzard: forever } as never, { blizzardFetch: fake.fetchFn, syncEveryMs: 0, recipeCheckEveryMs: 0 });
+  const app = buildApp({ ...base, blizzard: forever } as never, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {}, syncEveryMs: 0, recipeCheckEveryMs: 0 });
   await app.ready();
   try {
     const cookies = await login(app);

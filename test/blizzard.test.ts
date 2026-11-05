@@ -41,14 +41,14 @@ test("caches the token until shortly before expiry", async () => {
 
 test("concurrent first requests share one token fetch", async () => {
   const fake = fakeBlizzard({ "/a": {} });
-  const client = new BlizzardClient(creds, fake.fetchFn);
+  const client = new BlizzardClient(creds, fake.fetchFn, undefined, async () => {});
   await Promise.all([client.profile("/a"), client.profile("/a"), client.profile("/a")]);
   assert.equal(fake.tokens(), 1);
 });
 
 test("404 resolves null; other errors throw BlizzardError without leaking secrets", async () => {
   const fake = fakeBlizzard({ "/boom": { status: 503 } });
-  const client = new BlizzardClient(creds, fake.fetchFn);
+  const client = new BlizzardClient(creds, fake.fetchFn, undefined, async () => {});
   assert.equal(await client.profile("/missing"), null);
   await assert.rejects(client.profile("/boom"), (e: unknown) => e instanceof BlizzardError && !/shh|tok-/.test(String(e)));
 });
@@ -56,11 +56,11 @@ test("404 resolves null; other errors throw BlizzardError without leaking secret
 test("network failures and oauth failures become BlizzardError", async () => {
   const down = fakeBlizzard();
   down.state.apiDown = true;
-  await assert.rejects(new BlizzardClient(creds, down.fetchFn).profile("/a"), BlizzardError);
+  await assert.rejects(new BlizzardClient(creds, down.fetchFn, undefined, async () => {}).profile("/a"), BlizzardError);
 
   const badCreds = fakeBlizzard();
   badCreds.state.tokenStatus = 401;
-  await assert.rejects(new BlizzardClient(creds, badCreds.fetchFn).profile("/a"), /oauth returned 401/);
+  await assert.rejects(new BlizzardClient(creds, badCreds.fetchFn, undefined, async () => {}).profile("/a"), /oauth returned 401/);
 });
 
 test("a 401 from the api refreshes the token and retries once", async () => {
@@ -78,7 +78,7 @@ test("a 401 from the api refreshes the token and retries once", async () => {
 
 test("profileIfModified sends If-Modified-Since and maps 304 / 200 / 404", async () => {
   const fake = fakeBlizzard({ "/c": { name: "Jaina" } });
-  const client = new BlizzardClient(creds, fake.fetchFn);
+  const client = new BlizzardClient(creds, fake.fetchFn, undefined, async () => {});
   const first = await client.profileIfModified<{ name: string }>("/c", null);
   assert.deepEqual(first, { modified: true, body: { name: "Jaina" }, lastModified: fake.state.lastModified });
   assert.deepEqual(await client.profileIfModified("/c", fake.state.lastModified), { modified: false });
@@ -142,4 +142,44 @@ test("caps request starts at 50 per rolling second", async () => {
   for (let i = 0; i + 50 < starts.length; i++) {
     assert.ok(starts[i + 50] - starts[i] >= 1000, `requests ${i}..${i + 50} started within 1s`);
   }
+});
+
+test("a transient fetch rejection is retried after 1s", async () => {
+  let apiCalls = 0;
+  const fetchFn: FetchFn = async (input) => {
+    if (isToken(input)) return Response.json({ access_token: "t", expires_in: 3600 });
+    if (apiCalls++ === 0) throw new TypeError("fetch failed");
+    return Response.json({ ok: 1 });
+  };
+  const sleeps: number[] = [];
+  const client = new BlizzardClient(creds, fetchFn, () => 0, async (ms) => void sleeps.push(ms));
+  assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  assert.deepEqual(sleeps, [1000]);
+});
+
+test("persistent fetch rejection throws unreachable with the cause code, after 4 calls", async () => {
+  let apiCalls = 0;
+  const fetchFn: FetchFn = async (input) => {
+    if (isToken(input)) return Response.json({ access_token: "tok-secret", expires_in: 3600 });
+    apiCalls++;
+    throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+  };
+  const client = new BlizzardClient(creds, fetchFn, () => 0, async () => {});
+  await assert.rejects(
+    client.gameData("/a"),
+    (e: unknown) => e instanceof BlizzardError && /unreachable \(ECONNRESET\)/.test(e.message) && !/tok-secret|shh|Bearer/.test(e.message),
+  );
+  assert.equal(apiCalls, 4);
+});
+
+test("a 503 is retried; a 404 is not", async () => {
+  const f = scripted([() => new Response("", { status: 503 }), () => Response.json({ ok: 1 })]);
+  const sleeps: number[] = [];
+  const client = new BlizzardClient(creds, f.fetchFn, () => 0, async (ms) => void sleeps.push(ms));
+  assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  assert.deepEqual(sleeps, [1000]);
+
+  const g = scripted([() => new Response("", { status: 404 })]);
+  assert.equal(await new BlizzardClient(creds, g.fetchFn, () => 0, async () => {}).gameData("/a"), null);
+  assert.equal(g.calls(), 1);
 });

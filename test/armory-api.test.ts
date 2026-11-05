@@ -20,7 +20,7 @@ async function login(a: FastifyInstance) {
 }
 
 before(async () => {
-  app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn });
+  app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {} });
   await app.ready();
   cookies = await login(app);
 });
@@ -76,7 +76,7 @@ test("upstream failure is 502 with a generic error", async () => {
 });
 
 test("forever status has no realm and links Forever items on Wowhead", async () => {
-  const forever = buildApp({ ...base, blizzard: { ...blizzard, namespace: "forever", realm: undefined, guild: "old-school" } }, { blizzardFetch: fake.fetchFn });
+  const forever = buildApp({ ...base, blizzard: { ...blizzard, namespace: "forever", realm: undefined, guild: "old-school" } }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {} });
   await forever.ready();
   const res = await forever.inject({ method: "GET", url: "/api/armory/status", cookies: await login(forever) });
   assert.equal(res.json().realm, null);

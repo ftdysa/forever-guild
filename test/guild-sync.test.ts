@@ -49,7 +49,7 @@ function setup() {
   const fake = fakeBlizzard(r);
   const db = openDatabase(":memory:");
   const store = new MemberStore(db);
-  const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn), new ArmoryCache(db), cfg, () => t);
+  const armory = new ArmoryService(new BlizzardClient({ clientId: "id", clientSecret: "s", region: "us", namespace: "forever" }, fake.fetchFn, undefined, async () => {}), new ArmoryCache(db), cfg, () => t);
   const joined: Member[] = [];
   const notifier = { memberJoined: async (m: Member) => void joined.push(m) } as unknown as DiscordNotifier;
   const sync = new GuildSync(armory, store, notifier, quietLog, () => t);
@@ -128,7 +128,7 @@ async function login(a: FastifyInstance) {
 
 test("GET /api/members syncs first", async () => {
   const fake = fakeBlizzard(routes());
-  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {}, syncEveryMs: 0 });
   await app.ready();
   try {
     const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
@@ -142,7 +142,7 @@ test("GET /api/members syncs first", async () => {
 test("GET /api/members still answers when Blizzard is down", async () => {
   const fake = fakeBlizzard(routes());
   fake.state.apiDown = true;
-  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, syncEveryMs: 0 });
+  const app = buildApp({ ...base, blizzard }, { blizzardFetch: fake.fetchFn, blizzardSleep: async () => {}, syncEveryMs: 0 });
   await app.ready();
   try {
     const res = await app.inject({ method: "GET", url: "/api/members", cookies: await login(app) });
