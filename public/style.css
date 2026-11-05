@@ -505,3 +505,17 @@ button.sort.active[data-dir="desc"]::after { content: " ▼"; }
 .pvp-table td { vertical-align: middle; }
 .spark { width: 80px; height: 20px; }
 .spark path { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+
+/* Leaderboard */
+.lb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 16px; }
+.lb-panel { border: 1px solid var(--gold-dim); border-radius: 4px; padding: 8px 12px; background: #0f0d09; min-width: 0; }
+.lb-panel h3 { margin: 0 0 6px; font-size: 14px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
+.lb-wide { grid-column: 1 / -1; }
+.lb-scroll { overflow: auto; max-height: 320px; }
+.lb-list { margin: 0; padding-left: 22px; font-size: 14px; }
+.lb-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
+.lb-skill h4 { margin: 0 0 2px; font-family: var(--font-head); font-size: 13px; }
+.class-firsts td, .class-firsts th { white-space: nowrap; }
+@media (max-width: 700px) {
+  .lb-grid { grid-template-columns: 1fr; }
+}

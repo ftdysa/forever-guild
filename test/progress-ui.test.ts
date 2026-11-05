@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CLASSES, PROFESSIONS } from "../src/game-data.js";
-import { daysBetween, firstsGroups, levelRace, linePath, pvpRows, rankTitle, spreadLabels, TOP } from "../public/progress.js";
+import { classLevelTable, daysBetween, firstsGroups, levelRace, linePath, pvpRows, rankTitle, spreadLabels, TOP } from "../public/progress.js";
 
 const line = (name: string, cls: string, levels: [string, number][], current = true) => ({ name, class: cls, race: "Orc", current, levels });
 
@@ -48,24 +48,42 @@ test("rankTitle uses the faction's title, or the number when the race is unknown
   assert.equal(rankTitle(0, "Orc"), "None");
 });
 
-test("firstsGroups orders level 60, classes, races, professions and PvP ranks", () => {
+const LEVELS = ["10", "20", "30", "40", "50", "60"];
+const holder = (name: string) => ({ name, classId: "mage", current: true, reachedAt: "2026-11-01T00:00:00Z", source: "observed" });
+const makeFirsts = () => {
   const empty = { holders: [], atLaunch: [] };
-  const firsts = {
-    byLevel: { "60": empty },
-    byClassLevel: Object.fromEntries(CLASSES.map((c) => [c.id, { "60": empty }])),
+  return {
+    byLevel: Object.fromEntries(LEVELS.map((l) => [l, empty])),
+    byClassLevel: Object.fromEntries(CLASSES.map((c) => [c.id, Object.fromEntries(LEVELS.map((l) => [l, empty]))])),
     byRace: { Orc: empty, Gnome: empty },
     bySkill: Object.fromEntries(PROFESSIONS.map((p) => [p.id, empty])),
     byPvpRank: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [String(i + 1), empty])),
   };
-  const groups = firstsGroups(firsts, { classes: CLASSES, professions: PROFESSIONS });
+};
+const game = { classes: CLASSES, professions: PROFESSIONS };
+
+test("firstsGroups orders levels, races, professions and PvP ranks", () => {
+  const groups = firstsGroups(makeFirsts(), game);
   assert.deepEqual(groups.map((g) => [g.heading, g.cards.length]), [
-    ["Level 60", 1], ["Classes", CLASSES.length], ["Races", 2], ["Professions", PROFESSIONS.length], ["PvP ranks", 14],
+    ["Levels", 6], ["Races", 2], ["Professions", PROFESSIONS.length], ["PvP ranks", 14],
   ]);
-  assert.equal(groups[0].cards[0].title, "First to 60");
-  assert.equal(groups[1].cards[0].title, "Warrior");
-  assert.deepEqual(groups[2].cards.map((c) => c.title), ["Gnome", "Orc"]);
-  assert.equal(groups[3].cards[0].title, "Alchemy 300");
-  assert.deepEqual([groups[4].cards[6].title, groups[4].cards[6].rank], ["Rank 7", 7]);
+  assert.deepEqual(groups[0].cards.map((c) => c.title), ["Level 10", "Level 20", "Level 30", "Level 40", "Level 50", "Level 60"]);
+  assert.deepEqual(groups[1].cards.map((c) => c.title), ["Gnome", "Orc"]);
+  assert.equal(groups[2].cards[0].title, "Alchemy 300");
+  assert.deepEqual([groups[3].cards[6].title, groups[3].cards[6].rank], ["Rank 7", 7]);
+});
+
+test("classLevelTable lists classes in game order with the first holder per level", () => {
+  const firsts = makeFirsts();
+  firsts.byClassLevel.mage["30"] = { holders: [holder("Ann"), holder("Bob")], atLaunch: [] } as never;
+  const t = classLevelTable(firsts, game);
+  assert.deepEqual(t.levels, LEVELS);
+  assert.deepEqual(t.rows.map((r) => r.classId), CLASSES.map((c) => c.id));
+  assert.equal(t.rows[0].name, CLASSES[0].name);
+  const mage = t.rows.find((r) => r.classId === "mage")!;
+  assert.equal(mage.cells.length, 6);
+  assert.equal(mage.cells[2]?.name, "Ann");
+  assert.equal(mage.cells[0], null);
 });
 
 test("pvpRows sorts by the chosen column, ties by name", () => {

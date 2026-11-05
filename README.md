@@ -153,10 +153,13 @@ shows the gaps.
 
 ## Progress: level race, guild firsts, PvP ranks
 
-The Progress tab charts every character's level over time (the top 10 in
-class colour), lists guild firsts (first to 60 overall, per class and per
-race; first to 300 in each profession; first to each PvP rank), and tracks
-current and highest PvP rank with honorable kills.
+The Progress tab opens with a leaderboard of current members: level
+standings, fastest levelling this week, most guild firsts, and the top three
+skills per profession. It then charts every character's level over time (the
+top 10 in class colour), lists guild firsts (first to each level milestone,
+every 10 levels from 10 to 60, overall and per class in a class-by-level
+table; first to 60 per race; first to 300 in each profession; first to each
+PvP rank), and tracks current and highest PvP rank with honorable kills.
 
 - The guild sync writes one snapshot per character per UTC day (level from
   the roster; race, PvP and skills from the armory, level 10+). Days when the
