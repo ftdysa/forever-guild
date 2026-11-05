@@ -1,12 +1,12 @@
-# fly.toml app configuration file generated for geriatrics-guild on 2026-10-16T10:25:36-04:00
+# fly.toml app configuration file for the old-school Fly app
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 # Single machine only: the roster is a SQLite file on one volume.
 # Secrets (not in this file): fly secrets set GUILD_PASSPHRASE=... SESSION_SECRET=...
-#   BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...
+#   BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=... DISCORD_WEBHOOK_URL=...
 
-app = 'geriatrics-guild'
+app = 'old-school'
 primary_region = 'iad'
 
 [build]
@@ -19,11 +19,12 @@ primary_region = 'iad'
   TRUST_PROXY = 'true'
   # Fly's proxy sets this to the real client address; rate limiting keys on it.
   CLIENT_IP_HEADER = 'fly-client-ip'
-  # Armory PoC guild. Switching guilds: change these, then wipe with reset-data (see README).
+  # Armory guild. Forever has no realms, so BLIZZARD_REALM stays unset.
+  # Switching guilds: change these, then wipe with reset-data (see README).
   BLIZZARD_REGION = 'us'
-  BLIZZARD_NAMESPACE = 'classic1x'
-  BLIZZARD_REALM = 'doomhowl'
-  BLIZZARD_GUILD = 'fatal'
+  BLIZZARD_NAMESPACE = 'forever'
+  BLIZZARD_GUILD = 'old-school'
+  SITE_URL = 'https://old-school.fly.dev'
 
 [[mounts]]
   source = 'data'

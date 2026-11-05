@@ -11,38 +11,49 @@ export interface Config {
   clientIpHeader?: string;
   // Blizzard armory integration; undefined when not configured.
   blizzard?: BlizzardConfig;
+  // Discord join announcements; undefined when not configured.
+  discord?: DiscordConfig;
 }
 
 export interface BlizzardConfig {
   clientId: string;
   clientSecret: string;
   region: string;
-  // classic1x = Classic Era / Anniversary, classic = progression Classic, retail = live game.
+  // classic1x = Classic Era / Anniversary, classic = progression Classic, retail = live game,
+  // forever = WoW Forever (no realms: characters are name-surname, guilds are a bare slug).
   namespace: string;
-  realm: string;
+  // Unset for forever.
+  realm?: string;
   guild: string;
 }
 
+export interface DiscordConfig {
+  // Secret: never log it or echo it in errors.
+  webhookUrl: string;
+  siteUrl?: string;
+}
+
 const BLIZZARD_REGIONS = ["us", "eu", "kr", "tw"];
-const BLIZZARD_NAMESPACES = ["classic1x", "classic", "retail"];
+const BLIZZARD_NAMESPACES = ["classic1x", "classic", "retail", "forever"];
 const SLUG_RE = /^[a-z0-9-]+$/;
 
 function loadBlizzardConfig(env: NodeJS.ProcessEnv): BlizzardConfig | undefined {
-  const keys = ["BLIZZARD_CLIENT_ID", "BLIZZARD_CLIENT_SECRET", "BLIZZARD_REALM", "BLIZZARD_GUILD"];
-  const set = keys.filter((k) => env[k]);
-  if (set.length === 0) return undefined;
-  if (set.length < keys.length) {
-    throw new Error(`Blizzard armory is partly configured; also set: ${keys.filter((k) => !env[k]).join(", ")}`);
-  }
+  const all = ["BLIZZARD_CLIENT_ID", "BLIZZARD_CLIENT_SECRET", "BLIZZARD_REALM", "BLIZZARD_GUILD"];
+  if (!all.some((k) => env[k])) return undefined;
   const region = env.BLIZZARD_REGION || "us";
   if (!BLIZZARD_REGIONS.includes(region)) throw new Error(`BLIZZARD_REGION must be one of ${BLIZZARD_REGIONS.join(", ")}`);
   const namespace = env.BLIZZARD_NAMESPACE || "classic1x";
   if (!BLIZZARD_NAMESPACES.includes(namespace)) {
     throw new Error(`BLIZZARD_NAMESPACE must be one of ${BLIZZARD_NAMESPACES.join(", ")}`);
   }
-  const realm = env.BLIZZARD_REALM as string;
+  const forever = namespace === "forever";
+  const required = forever ? all.filter((k) => k !== "BLIZZARD_REALM") : all;
+  const missing = required.filter((k) => !env[k]);
+  if (missing.length > 0) throw new Error(`Blizzard armory is partly configured; also set: ${missing.join(", ")}`);
+  if (forever && env.BLIZZARD_REALM) throw new Error("BLIZZARD_REALM must be empty for forever, which has no realms");
+  const realm = forever ? undefined : (env.BLIZZARD_REALM as string);
   const guild = env.BLIZZARD_GUILD as string;
-  if (!SLUG_RE.test(realm) || !SLUG_RE.test(guild)) {
+  if ((realm !== undefined && !SLUG_RE.test(realm)) || !SLUG_RE.test(guild)) {
     throw new Error("BLIZZARD_REALM and BLIZZARD_GUILD must be slugs (lowercase letters, digits, hyphens)");
   }
   return {
@@ -53,6 +64,19 @@ function loadBlizzardConfig(env: NodeJS.ProcessEnv): BlizzardConfig | undefined 
     realm,
     guild,
   };
+}
+
+const DISCORD_WEBHOOK_RE = /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+
+function loadDiscordConfig(env: NodeJS.ProcessEnv): DiscordConfig | undefined {
+  const siteUrl = env.SITE_URL || undefined;
+  if (siteUrl && !/^https?:\/\/\S+$/.test(siteUrl)) throw new Error("SITE_URL must be an http(s) URL");
+  const webhookUrl = env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return undefined;
+  if (!DISCORD_WEBHOOK_RE.test(webhookUrl)) {
+    throw new Error("DISCORD_WEBHOOK_URL must be a Discord webhook URL");
+  }
+  return { webhookUrl, siteUrl };
 }
 
 const MIN_PASSPHRASE_LENGTH = 16;
@@ -84,5 +108,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: env.TRUST_PROXY === "true",
     clientIpHeader: env.CLIENT_IP_HEADER?.toLowerCase() || undefined,
     blizzard: loadBlizzardConfig(env),
+    discord: loadDiscordConfig(env),
   };
 }

@@ -1,4 +1,4 @@
-# Geriatrics Guild Roster
+# Old School Guild Roster
 
 Guild members claim a main class/spec, an optional backup class/spec, two
 primary professions, secondary professions, and optionally a sweat factor
@@ -40,7 +40,7 @@ npm test
 
 - Pull requests run lint, typecheck, and tests (`.github/workflows/ci.yml`).
 - Pushes to `main` run the same checks, then `flyctl deploy` to the
-  `geriatrics-guild` Fly app (`.github/workflows/deploy.yml`). Needs a
+  `old-school` Fly app (`.github/workflows/deploy.yml`). Needs a
   `FLY_API_TOKEN` repo secret from `fly tokens create deploy`.
 
 ## API
@@ -57,31 +57,31 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 | POST   | /api/members       | create → 201                        |
 | PUT    | /api/members/:id   | replace → 200                       |
 | DELETE | /api/members/:id   | → 204                               |
-| GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }` |
-| GET    | /api/armory/roster | guild members with `onRoster` flag; 404 when disabled |
-| GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown, 502 Blizzard down |
+| GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }`; `realm` is null on Forever |
+| GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; 404 unknown (on Forever: not in the guild), 502 Blizzard down |
 
 Errors: `{ error, details? }` with 400 / 401 / 404 / 409 / 429 / 500 / 502.
 
 ## Armory (Blizzard API)
 
-Optional. With `BLIZZARD_*` set (see `.env.example`), the roster gets an
-"Import from Guild" button and character names open an armory view with gear,
-item level, and a spec guessed from talent points.
+Optional. With `BLIZZARD_*` set (see `.env.example`), character names open an
+armory view with gear, item level, and a spec guessed from talent points.
+
+WoW Forever (`BLIZZARD_NAMESPACE=forever`) has no realms: characters are
+addressed as `name-surname`. The app looks the surname up in the guild roster,
+so armory lookups only cover members of `BLIZZARD_GUILD`.
 
 - Calls go server-side with client credentials; the secret never reaches the browser.
 - Responses are cached in SQLite:
-  - Guild roster: 6h.
+  - Guild roster (Forever name → surname lookup): 15 minutes.
   - Characters: no hard expiry. After 15 minutes a view sends one conditional
     request (`If-Modified-Since`, which Blizzard ties to the character's last
     login). 304 keeps the cache; 200 means they played, and the character is
     refetched (5 profile calls + 1 icon search).
   - Item icons: one media search per 100 uncached items, kept for a year.
 - If Blizzard is down, cached data is served; without a cache the API returns 502.
-- Classic Era has no professions endpoint, so professions stay manual there. On
-  realms that expose it, import pre-fills them.
 - On Fly, set the credentials as secrets: `fly secrets set BLIZZARD_CLIENT_ID=... BLIZZARD_CLIENT_SECRET=...`.
-  Realm and guild live in `fly.toml` `[env]`.
+  Namespace and guild live in `fly.toml` `[env]`.
 
 ### Switching guilds / wiping PoC data
 
@@ -94,6 +94,16 @@ fly ssh console -C "setpriv --reuid=node --regid=node --init-groups node dist/re
 
 Run it as `node` on Fly (as above) so SQLite's WAL files stay owned by the app
 user. Then update `BLIZZARD_REALM` / `BLIZZARD_GUILD` and deploy.
+
+## Discord announcements
+
+Optional. With `DISCORD_WEBHOOK_URL` set (see `.env.example`), each new roster
+member is posted to that channel as an embed in their class colour, linking to
+`SITE_URL` when set. Edits and removals are not posted. Delivery is
+best-effort: if Discord is down the post is dropped and the roster save still
+succeeds.
+
+- The webhook URL is a secret. On Fly: `fly secrets set DISCORD_WEBHOOK_URL=...`.
 
 ## Security notes
 
