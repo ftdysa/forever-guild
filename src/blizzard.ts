@@ -14,6 +14,15 @@ const TOKEN_URL = "https://oauth.battle.net/token";
 const TIMEOUT_MS = 10_000;
 // Refresh a little early so a token never expires mid-request.
 const TOKEN_MARGIN_MS = 60_000;
+// Blizzard limits clients to 100 requests/second (and 36,000/hour). We cap at half that so
+// parallel work (catalog build, guild sync, armory dialog) has headroom for latency jitter.
+const MAX_PER_SECOND = 50;
+const WINDOW_MS = 1000;
+// A 429 means we hit the limit anyway: back off and retry a few times before giving up.
+const MAX_429_RETRIES = 3;
+const MAX_RETRY_AFTER_MS = 10_000;
+
+const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "namespace">;
 
@@ -21,15 +30,25 @@ type Creds = Pick<BlizzardConfig, "clientId" | "clientSecret" | "region" | "name
 // with its Last-Modified for the next check.
 export type Conditional<T> = { modified: false } | { modified: true; body: T | null; lastModified: string | null };
 
+// Retry-After (seconds) when present and numeric, else 1s x attempt number.
+function retryDelayMs(res: Response, attempt: number): number {
+  const header = res.headers.get("retry-after");
+  const seconds = header !== null && header.trim() !== "" ? Number(header) : NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, MAX_RETRY_AFTER_MS) : 1000 * attempt;
+}
+
 // Client-credentials Battle.net client for the WoW Profile API. Server-side only.
 export class BlizzardClient {
   private token: { value: string; expiresAt: number } | null = null;
   private pendingToken: Promise<string> | null = null;
+  // Start times of API requests in the last WINDOW_MS (oldest first).
+  private recentStarts: number[] = [];
 
   constructor(
     private creds: Creds,
     private fetchFn: FetchFn = fetch,
     private now: () => number = Date.now,
+    private sleep: (ms: number) => Promise<void> = realSleep,
   ) {}
 
   get profileNamespace(): string {
@@ -90,14 +109,39 @@ export class BlizzardClient {
     return res;
   }
 
+  // One API call, retrying 429s with backoff. Each attempt takes a rate-limit slot.
   private async send(url: string, token: string, headers: Record<string, string>): Promise<Response> {
-    try {
-      return await this.fetchFn(url, {
-        headers: { ...headers, authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch {
-      throw new BlizzardError("blizzard api unreachable");
+    for (let attempt = 1; ; attempt++) {
+      // Only yield when we actually have to wait, so a free slot goes straight to fetch.
+      if (!this.tryTakeSlot()) await this.waitForSlot();
+      let res: Response;
+      try {
+        res = await this.fetchFn(url, {
+          headers: { ...headers, authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+      } catch {
+        throw new BlizzardError("blizzard api unreachable");
+      }
+      if (res.status !== 429 || attempt > MAX_429_RETRIES) return res;
+      await this.sleep(retryDelayMs(res, attempt));
+    }
+  }
+
+  // Claim a slot if fewer than MAX_PER_SECOND requests started in the last second. Check and
+  // claim happen in one synchronous step, so concurrent callers can't all pass the check.
+  private tryTakeSlot(): boolean {
+    const now = this.now();
+    while (this.recentStarts.length > 0 && this.recentStarts[0] <= now - WINDOW_MS) this.recentStarts.shift();
+    if (this.recentStarts.length >= MAX_PER_SECOND) return false;
+    this.recentStarts.push(now);
+    return true;
+  }
+
+  // Sleep until the oldest start leaves the window, then claim a slot (woken waiters re-check).
+  private async waitForSlot(): Promise<void> {
+    while (!this.tryTakeSlot()) {
+      await this.sleep(Math.max(1, this.recentStarts[0] + WINDOW_MS - this.now()));
     }
   }
 

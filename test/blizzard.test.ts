@@ -89,3 +89,57 @@ test("profileIfModified sends If-Modified-Since and maps 304 / 200 / 404", async
   });
   assert.deepEqual(await client.profileIfModified("/missing", null), { modified: true, body: null, lastModified: null });
 });
+
+const isToken = (input: unknown) => String(input).startsWith("https://oauth.battle.net");
+
+// Fake fetch: token calls succeed; API calls pop the next scripted response (last one repeats).
+function scripted(responses: (() => Response)[]) {
+  let apiCalls = 0;
+  const fetchFn: FetchFn = async (input) => {
+    if (isToken(input)) return Response.json({ access_token: "t", expires_in: 3600 });
+    const make = responses[Math.min(apiCalls, responses.length - 1)];
+    apiCalls++;
+    return make();
+  };
+  return { fetchFn, calls: () => apiCalls };
+}
+
+test("a 429 is retried after Retry-After seconds", async () => {
+  const f = scripted([() => new Response("", { status: 429, headers: { "retry-after": "2" } }), () => Response.json({ ok: 1 })]);
+  const sleeps: number[] = [];
+  const client = new BlizzardClient(creds, f.fetchFn, () => 0, async (ms) => void sleeps.push(ms));
+  assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  assert.deepEqual(sleeps, [2000]);
+  assert.equal(f.calls(), 2);
+});
+
+test("a 429 without Retry-After backs off 1s then 2s", async () => {
+  const f = scripted([() => new Response("", { status: 429 }), () => new Response("", { status: 429 }), () => Response.json({ ok: 1 })]);
+  const sleeps: number[] = [];
+  const client = new BlizzardClient(creds, f.fetchFn, () => 0, async (ms) => void sleeps.push(ms));
+  assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  assert.deepEqual(sleeps, [1000, 2000]);
+});
+
+test("gives up after three 429 retries", async () => {
+  const f = scripted([() => new Response("", { status: 429 })]);
+  const client = new BlizzardClient(creds, f.fetchFn, () => 0, async () => {});
+  await assert.rejects(client.gameData("/a"), (e: unknown) => e instanceof BlizzardError && /429/.test(e.message));
+  assert.equal(f.calls(), 4);
+});
+
+test("caps request starts at 50 per rolling second", async () => {
+  let clock = 0;
+  const starts: number[] = [];
+  const fetchFn: FetchFn = async (input) => {
+    if (isToken(input)) return Response.json({ access_token: "t", expires_in: 3600 });
+    starts.push(clock);
+    return Response.json({ ok: 1 });
+  };
+  const client = new BlizzardClient(creds, fetchFn, () => clock, async (ms) => void (clock += ms));
+  await Promise.all(Array.from({ length: 120 }, () => client.gameData("/a")));
+  assert.equal(starts.length, 120);
+  for (let i = 0; i + 50 < starts.length; i++) {
+    assert.ok(starts[i + 50] - starts[i] >= 1000, `requests ${i}..${i + 50} started within 1s`);
+  }
+});
