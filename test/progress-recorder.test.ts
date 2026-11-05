@@ -89,3 +89,18 @@ test("newcomers who arrive past a milestone are before_joining", async () => {
   await rec.recordArmory(member("Vet", 60), info({ level: 60 }));
   assert.deepEqual(store.milestonesFor("Vet").map((m) => m.source), ["before_joining"]);
 });
+
+test("a ding is still observed when the armory refresh only succeeds days after the roster showed level 60", async () => {
+  const { store, rec, posts, nextDay, now } = setup();
+  rec.recordRoster([roster("Grom", 59)]);
+  await rec.recordArmory(member("Grom", 59), info({ level: 59 }));
+  nextDay();
+  const login = new Date(now() - 3_600_000).toISOString();
+  rec.recordRoster([roster("Grom", 60)]); // armory read failed today
+  nextDay();
+  rec.recordRoster([roster("Grom", 60)]);
+  await rec.recordArmory(member("Grom", 60), info({ level: 60, lastLogin: login }));
+  const [m] = store.milestones();
+  assert.deepEqual([m.source, m.reachedAt, m.announced], ["observed", login, true]);
+  assert.equal(posts.length, 1);
+});

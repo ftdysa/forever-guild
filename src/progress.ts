@@ -1,7 +1,7 @@
 import type { CharacterInfo } from "./armory.js";
 import type { Member, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
-import { claimedFirsts, computeFirsts, detectMilestones } from "./milestones.js";
+import { claimedFirsts, computeFirsts, detectMilestones, MAX_LEVEL } from "./milestones.js";
 import { utcDay, type ProgressStore, type SnapshotPatch } from "./progress-store.js";
 
 // Writes the guild sync's view of each character into daily snapshots, records milestones as
@@ -43,6 +43,7 @@ export class ProgressRecorder {
       name,
       state: { classId: m.mainClass, race: today.race, level: Math.max(m.level, c.level), skills: today.skills, pvpRank: today.pvpRank },
       prior,
+      priorBelowLevel: this.store.latestBelowLevel(name, day, MAX_LEVEL),
       launchMember: this.store.firstDay(name) === this.store.trackingSince(),
       existing: this.store.milestonesFor(name),
       achievements: c.milestoneAchievements,
@@ -59,7 +60,7 @@ export class ProgressRecorder {
     await this.notifier?.guildFirsts(
       { name, surname: m.surname, classId: m.mainClass },
       claiming.flatMap((e) => e.claims),
-      observed[0].reachedAt ?? new Date(nowMs).toISOString(),
+      claiming[0].x.reachedAt ?? new Date(nowMs).toISOString(),
     );
   }
 }

@@ -45,7 +45,7 @@ function routes() {
 const quietLog = { warn() {}, error() {} } as unknown as FastifyBaseLogger;
 const cfg = { region: "us", namespace: "forever", guild: "old-school" };
 
-function setup() {
+function setup(opts: { log?: FastifyBaseLogger; recorder?: ProgressRecorder } = {}) {
   let t = 1_000_000;
   const r = routes();
   const fake = fakeBlizzard(r);
@@ -59,7 +59,7 @@ function setup() {
     guildFirsts: async (who: { name: string }, claims: string[]) => void firsts.push([who.name, claims]),
   } as unknown as DiscordNotifier;
   const progress = new ProgressStore(db);
-  const sync = new GuildSync(armory, store, notifier, quietLog, () => t, new ProgressRecorder(progress, notifier, () => t));
+  const sync = new GuildSync(armory, store, notifier, opts.log ?? quietLog, () => t, opts.recorder ?? new ProgressRecorder(progress, notifier, () => t));
   return {
     r, fake, store, sync, joined, progress, firsts,
     advance: (ms: number) => (t += ms),
@@ -191,4 +191,24 @@ test("progress: every sync snapshots the roster, and a level-60 ding on a later 
     ["Thrall", "level", "60", "observed", new Date(login).toISOString()],
   ]);
   assert.deepEqual(firsts, [["Thrall", ["First to reach level 60", "First Shaman to reach level 60", "First Orc to reach level 60"]]]);
+});
+
+test("progress failures are logged and never break the roster refresh or armory enrichment", async () => {
+  const warnings: string[] = [];
+  const log = { warn: (_o: unknown, msg: string) => void warnings.push(msg), error() {} } as unknown as FastifyBaseLogger;
+  const recorder = {
+    recordRoster: () => {
+      throw new Error("roster boom");
+    },
+    recordArmory: async () => {
+      throw new Error("armory boom");
+    },
+  } as unknown as ProgressRecorder;
+  const { store, sync } = setup({ log, recorder });
+  await sync.sync();
+  await sync.idle();
+  const [thrall] = store.list();
+  assert.deepEqual([thrall.characterName, thrall.level], ["Thrall", 20]);
+  assert.equal(thrall.mainSpec, "restoration");
+  assert.deepEqual(warnings, ["progress snapshot failed", "progress recording failed"]);
 });

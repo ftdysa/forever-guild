@@ -40,6 +40,10 @@ export interface DetectInput {
   state: CharacterState;
   // The character's latest snapshot from an earlier day (not today's).
   prior: Snapshot | null;
+  // The character's latest snapshot from an earlier day with level below MAX_LEVEL. The level is
+  // written every sync but skills/PvP only by the armory pass, so "previously seen below 60" can
+  // predate `prior`.
+  priorBelowLevel: Snapshot | null;
   // On the roster when tracking began (first snapshot day == tracking start).
   launchMember: boolean;
   existing: Pick<Milestone, "kind" | "key">[];
@@ -48,20 +52,26 @@ export interface DetectInput {
   now: string;
 }
 
-// True when the earlier snapshot shows the character below this milestone. Skills and PvP are
+// The earlier snapshot a milestone is compared against: levels use the last sub-60 snapshot,
+// skills and PvP the latest earlier one.
+function comparison(kind: MilestoneKind, i: DetectInput): Snapshot | null {
+  return kind === "level" ? i.priorBelowLevel : i.prior;
+}
+
+// True when the comparison snapshot shows the character below this milestone. Skills and PvP are
 // only known once the armory has been read (race is set by that read).
-function wasBelow(kind: MilestoneKind, key: string, prior: Snapshot | null): boolean {
-  if (!prior) return false;
-  if (kind === "level") return prior.level < MAX_LEVEL;
-  if (prior.race === null) return false;
-  if (kind === "skill") return (prior.skills[key] ?? 0) < MAX_SKILL;
-  return (prior.pvpRank ?? 0) < Number(key);
+function wasBelow(kind: MilestoneKind, key: string, snap: Snapshot | null): boolean {
+  if (!snap) return false;
+  if (kind === "level") return true;
+  if (snap.race === null) return false;
+  if (kind === "skill") return (snap.skills[key] ?? 0) < MAX_SKILL;
+  return (snap.pvpRank ?? 0) < Number(key);
 }
 
 // Data only changes when someone plays, so the last login is the session it happened in. Ignore it
-// if it predates the earlier snapshot or is in the future.
-function observedAt(i: DetectInput): string {
-  const ok = i.lastLogin && i.prior && i.lastLogin >= `${i.prior.day}T00:00:00.000Z` && i.lastLogin <= i.now;
+// if it predates the comparison snapshot or is in the future.
+function observedAt(i: DetectInput, snap: Snapshot): string {
+  const ok = i.lastLogin && i.lastLogin >= `${snap.day}T00:00:00.000Z` && i.lastLogin <= i.now;
   return ok ? (i.lastLogin as string) : i.now;
 }
 
@@ -80,7 +90,8 @@ export function detectMilestones(i: DetectInput): NewMilestone[] {
     .filter((m) => !have.has(`${m.kind}:${m.key}`))
     .map(({ kind, key }): NewMilestone => {
       const base = { name: i.name, kind, key, classId: i.state.classId, race: i.state.race };
-      if (wasBelow(kind, key, i.prior)) return { ...base, source: "observed", reachedAt: observedAt(i) };
+      const snap = comparison(kind, i);
+      if (snap && wasBelow(kind, key, snap)) return { ...base, source: "observed", reachedAt: observedAt(i, snap) };
       if (!i.launchMember) return { ...base, source: "before_joining", reachedAt: null };
       const at = achievedAt(kind, key, i);
       return at ? { ...base, source: "achievement", reachedAt: at } : { ...base, source: "before_tracking", reachedAt: null };

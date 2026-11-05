@@ -72,3 +72,15 @@ test("wipe clears both tables", () => {
   assert.deepEqual(s.snapshots(), []);
   assert.deepEqual(s.milestones(), []);
 });
+
+test("latestBelowLevel finds the latest earlier row under the level, skipping rows at or above it", () => {
+  const s = fresh();
+  s.upsertSnapshot("Grom", "2026-11-05", { classId: "warrior", level: 58 });
+  s.upsertSnapshot("Grom", "2026-11-06", { level: 59 });
+  s.upsertSnapshot("Grom", "2026-11-07", { level: 60 });
+  s.upsertSnapshot("Grom", "2026-11-08", { level: 60 });
+  assert.equal(s.latestBelowLevel("grom", "2026-11-09", 60)?.day, "2026-11-06");
+  assert.equal(s.latestBelowLevel("Grom", "2026-11-06", 60)?.day, "2026-11-05");
+  assert.equal(s.latestBelowLevel("Grom", "2026-11-05", 60), null);
+  assert.equal(s.latestBelowLevel("Nobody", "2026-11-09", 60), null);
+});

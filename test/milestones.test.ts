@@ -13,7 +13,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
 });
 const state = (over: Partial<CharacterState> = {}): CharacterState => ({ classId: "warrior", race: "Orc", level: 60, skills: {}, pvpRank: 0, ...over });
 const input = (over: Partial<DetectInput> = {}): DetectInput => ({
-  name: "Grom", state: state(), prior: snap(), launchMember: false, existing: [], achievements: [], lastLogin: LOGIN, now: NOW, ...over,
+  name: "Grom", state: state(), prior: snap(), priorBelowLevel: snap(), launchMember: false, existing: [], achievements: [], lastLogin: LOGIN, now: NOW, ...over,
 });
 const brief = (ms: { kind: string; key: string; source: string; reachedAt: string | null }[]) => ms.map((m) => [m.kind, m.key, m.source, m.reachedAt]);
 const ranks = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: "pvp_rank" as const, key: String(i + 1) }));
@@ -67,7 +67,7 @@ test("launch members use a matching achievement's date, else before_tracking", (
     { kind: "level", key: "60", classId: "warrior", completedAt: "2026-10-01T00:00:00.000Z" },
     { kind: "pvp_rank", key: "3", classId: null, completedAt: "2026-10-02T00:00:00.000Z" },
   ];
-  assert.deepEqual(brief(detectMilestones(input({ state: state({ pvpRank: 3 }), prior: null, launchMember: true, achievements }))), [
+  assert.deepEqual(brief(detectMilestones(input({ state: state({ pvpRank: 3 }), prior: null, priorBelowLevel: null, launchMember: true, achievements }))), [
     ["level", "60", "achievement", "2026-10-01T00:00:00.000Z"],
     ["pvp_rank", "1", "before_tracking", null],
     ["pvp_rank", "2", "before_tracking", null],
@@ -76,7 +76,7 @@ test("launch members use a matching achievement's date, else before_tracking", (
 });
 
 test("a launch member already at 60 on an earlier day (armory failed then) still gets launch treatment", () => {
-  assert.deepEqual(brief(detectMilestones(input({ prior: snap({ level: 60 }), launchMember: true }))), [["level", "60", "before_tracking", null]]);
+  assert.deepEqual(brief(detectMilestones(input({ prior: snap({ level: 60 }), priorBelowLevel: null, launchMember: true }))), [["level", "60", "before_tracking", null]]);
 });
 
 test("an achievement for another class, or dated in the future, is not trusted", () => {
@@ -84,12 +84,12 @@ test("an achievement for another class, or dated in the future, is not trusted",
     { kind: "level", key: "60", classId: "druid", completedAt: "2026-10-01T00:00:00.000Z" },
     { kind: "level", key: "60", classId: "warrior", completedAt: "2026-12-01T00:00:00.000Z" },
   ] as AchievementMilestone[]) {
-    assert.deepEqual(brief(detectMilestones(input({ prior: null, launchMember: true, achievements: [a] }))), [["level", "60", "before_tracking", null]]);
+    assert.deepEqual(brief(detectMilestones(input({ prior: null, priorBelowLevel: null, launchMember: true, achievements: [a] }))), [["level", "60", "before_tracking", null]]);
   }
 });
 
 test("newcomers already past a milestone are before_joining", () => {
-  assert.deepEqual(brief(detectMilestones(input({ prior: null }))), [["level", "60", "before_joining", null]]);
+  assert.deepEqual(brief(detectMilestones(input({ prior: null, priorBelowLevel: null }))), [["level", "60", "before_joining", null]]);
 });
 
 const ms = (name: string, kind: Milestone["kind"], key: string, source: Milestone["source"], reachedAt: string | null, over: Partial<Milestone> = {}): Milestone => ({
