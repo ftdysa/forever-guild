@@ -122,6 +122,28 @@ test("a catalog written by another process is picked up", async () => {
   assert.deepEqual(catalog.current(), other);
 });
 
+test("a missing skill tier fails the build and keeps the stored catalog", async () => {
+  const r = routes();
+  const { catalog } = setup(r);
+  const first = await catalog.rebuild();
+  delete r["/data/wow/profession/202/skill-tier/2941"];
+  await assert.rejects(catalog.rebuild(), /profession 202 not found/);
+  assert.deepEqual(catalog.current(), first);
+  assert.equal(catalog.hasFailed(), true);
+});
+
+test("checkBuild keeps the stored catalog when the self link has no build", async () => {
+  const r = routes();
+  const { catalog, fake } = setup(r);
+  await catalog.rebuild();
+  const detailCalls = () => fake.calls.filter((p) => p.startsWith("/data/wow/recipe/")).length;
+  const before = detailCalls();
+  (r["/data/wow/profession/index"] as { _links: unknown })._links = { self: { href: "https://us.api.blizzard.com/x?namespace=static-us" } };
+  assert.equal(await catalog.checkBuild(), false);
+  assert.equal(detailCalls(), before);
+  assert.equal(catalog.current()?.build, "1.60.1_70399");
+});
+
 test("craftersByRecipe joins members by known recipe, best skill first", () => {
   const catalog: Catalog = {
     build: "b",

@@ -162,7 +162,8 @@ export class RecipeCatalog {
     if (stored) {
       const index = await this.client.gameData<RawIndex>("/data/wow/profession/index");
       const build = buildOf(index?._links?.self?.href);
-      if (build !== null && stored.build === build) return false;
+      // An unrecognised self link cannot prove a change, so keep the stored catalog.
+      if (build === null || stored.build === build) return false;
     }
     await this.rebuild();
     return true;
@@ -184,9 +185,10 @@ export class RecipeCatalog {
     for (const p of wanted) {
       const prof = await this.client.gameData<RawProfession>(`/data/wow/profession/${p.blizzardId}`);
       const tierId = prof?.skill_tiers?.[0]?.id;
-      const tier =
-        tierId === undefined ? null : await this.client.gameData<RawSkillTier>(`/data/wow/profession/${p.blizzardId}/skill-tier/${tierId}`);
-      const categories = tier?.categories ?? [];
+      if (!prof || tierId === undefined) throw new BlizzardError(`profession ${p.blizzardId} not found`);
+      const tier = await this.client.gameData<RawSkillTier>(`/data/wow/profession/${p.blizzardId}/skill-tier/${tierId}`);
+      if (!tier) throw new BlizzardError(`profession ${p.blizzardId} not found`);
+      const categories = tier.categories ?? [];
       const ids = categories.flatMap((c) => (c.recipes ?? []).map((r) => r.id));
       const details = new Map(
         await mapLimit(ids, CONCURRENCY, async (id) => [id, await this.client.gameData<RawRecipe>(`/data/wow/recipe/${id}`)] as const),
