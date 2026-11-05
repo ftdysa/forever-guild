@@ -13,6 +13,7 @@ export interface EmbedField {
 export interface Embed {
   title: string;
   url?: string;
+  description?: string;
   color: number;
   fields: EmbedField[];
   timestamp: string;
@@ -27,6 +28,11 @@ const nameOf = (list: { id: string; name: string }[], id: string) => list.find((
 function classSpec(classId: string, specId: string | null): string {
   const cls = findClass(classId)?.name ?? classId;
   return specId ? `${cls} — ${findSpec(classId, specId)?.name ?? specId}` : cls;
+}
+
+function classColor(classId: string): number {
+  const hex = findClass(classId)?.color ?? "#C0C0C0";
+  return parseInt((COLOR_OVERRIDES[hex] ?? hex).slice(1), 16);
 }
 
 export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
@@ -45,13 +51,30 @@ export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
   ].filter((s): s is string => !!s);
   if (style.length > 0) fields.push({ name: "Style", value: style.join(" · "), inline: false });
 
-  const hex = findClass(m.mainClass)?.color ?? "#C0C0C0";
   return {
     title: `${[m.characterName, m.surname].filter(Boolean).join(" ")} joined the guild`,
     ...(siteUrl ? { url: siteUrl } : {}),
-    color: parseInt((COLOR_OVERRIDES[hex] ?? hex).slice(1), 16),
+    color: classColor(m.mainClass),
     fields,
     timestamp: m.createdAt,
+  };
+}
+
+export interface FirstsWho {
+  name: string;
+  surname: string | null;
+  classId: string;
+}
+
+export function buildFirstsEmbed(who: FirstsWho, claims: string[], at: string, siteUrl?: string): Embed {
+  const name = [who.name, who.surname].filter(Boolean).join(" ");
+  return {
+    title: claims.length === 1 ? `${name} claimed a guild first` : `${name} claimed ${claims.length} guild firsts`,
+    ...(siteUrl ? { url: `${siteUrl.replace(/\/+$/, "")}/#progress` } : {}),
+    description: claims.map((c) => `🏆 ${c}`).join("\n"),
+    color: classColor(who.classId),
+    fields: [],
+    timestamp: at,
   };
 }
 
@@ -62,13 +85,21 @@ export class DiscordNotifier {
     private fetchFn: FetchFn = fetch,
   ) {}
 
+  memberJoined(m: Member): Promise<void> {
+    return this.send(buildJoinEmbed(m, this.config.siteUrl));
+  }
+
+  guildFirsts(who: FirstsWho, claims: string[], at: string): Promise<void> {
+    return this.send(buildFirstsEmbed(who, claims, at, this.config.siteUrl));
+  }
+
   // Never throws: a lost announcement must not affect the API response. Logs never include the URL.
-  async memberJoined(m: Member): Promise<void> {
+  private async send(embed: Embed): Promise<void> {
     try {
       const res = await this.fetchFn(this.config.webhookUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ embeds: [buildJoinEmbed(m, this.config.siteUrl)], allowed_mentions: { parse: [] } }),
+        body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       if (!res.ok) {
