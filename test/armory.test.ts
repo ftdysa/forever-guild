@@ -264,8 +264,8 @@ function foreverFixture() {
   const routes: Record<string, unknown> = {
     "/data/wow/guild/old-school/roster": {
       members: [
-        { character: { name: "Thrall", slug: "thrall-durotan", level: 14, playable_class: { id: 7 } }, rank: 0 },
-        { character: { name: "Jaina", slug: "jaina-proudmoore", level: 12, playable_class: { id: 8 } }, rank: 3 },
+        { character: { name: "Thrall", surname: "Durotan", slug: "thrall-durotan", level: 14, playable_class: { id: 7 } }, rank: 0 },
+        { character: { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", level: 12, playable_class: { id: 8 } }, rank: 3 },
         { character: { name: "Oddball", slug: "oddball-x", level: 2, playable_class: { id: 6 } }, rank: 9 },
       ],
     },
@@ -280,9 +280,9 @@ const foreverCfg = { region: "us", namespace: "forever", guild: "old-school" };
 test("roster maps classes, sorts by name, and leaves unknown classes null", async () => {
   const { armory } = setup(foreverFixture(), foreverCfg);
   assert.deepEqual(await armory.roster(), [
-    { name: "Jaina", slug: "jaina-proudmoore", level: 12, classId: "mage", rank: 3 },
-    { name: "Oddball", slug: "oddball-x", level: 2, classId: null, rank: 9 },
-    { name: "Thrall", slug: "thrall-durotan", level: 14, classId: "shaman", rank: 0 },
+    { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", level: 12, classId: "mage", rank: 3 },
+    { name: "Oddball", surname: null, slug: "oddball-x", level: 2, classId: null, rank: 9 },
+    { name: "Thrall", surname: "Durotan", slug: "thrall-durotan", level: 14, classId: "shaman", rank: 0 },
   ]);
 });
 
@@ -292,7 +292,7 @@ test("realm flavours read the roster under the realm", async () => {
     members: [{ character: { name: "Jaina", level: 60, playable_class: { id: 8 } }, rank: 1 }],
   };
   const { armory } = setup(routes);
-  assert.deepEqual(await armory.roster(), [{ name: "Jaina", slug: null, level: 60, classId: "mage", rank: 1 }]);
+  assert.deepEqual(await armory.roster(), [{ name: "Jaina", surname: null, slug: null, level: 60, classId: "mage", rank: 1 }]);
 });
 
 test("forever resolves characters through the guild roster's slugs", async () => {

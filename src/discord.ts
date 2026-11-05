@@ -47,7 +47,7 @@ export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
 
   const hex = findClass(m.mainClass)?.color ?? "#C0C0C0";
   return {
-    title: `${m.characterName} joined the guild`,
+    title: `${[m.characterName, m.surname].filter(Boolean).join(" ")} joined the guild`,
     ...(siteUrl ? { url: siteUrl } : {}),
     color: parseInt((COLOR_OVERRIDES[hex] ?? hex).slice(1), 16),
     fields,

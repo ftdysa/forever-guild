@@ -8,6 +8,7 @@ import { buildJoinEmbed, DiscordNotifier } from "../src/discord.js";
 const thrall: Member = {
   id: 1,
   characterName: "Thrall",
+  surname: "Durotan",
   mainClass: "shaman",
   mainSpec: "enhancement",
   level: 42,
@@ -26,6 +27,7 @@ const thrall: Member = {
 const bare: Member = {
   ...thrall,
   characterName: "Anduin",
+  surname: null,
   mainClass: "priest",
   mainSpec: null,
   backupClass: null,
@@ -38,7 +40,7 @@ const bare: Member = {
 
 test("join embed has title, class colour, and named fields", () => {
   const e = buildJoinEmbed(thrall, "https://example.test");
-  assert.equal(e.title, "Thrall joined the guild");
+  assert.equal(e.title, "Thrall Durotan joined the guild");
   assert.equal(e.url, "https://example.test");
   assert.equal(e.color, 0x0070dd);
   assert.equal(e.timestamp, thrall.createdAt);
