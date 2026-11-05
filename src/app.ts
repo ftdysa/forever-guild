@@ -21,6 +21,7 @@ import { memberRoutes } from "./routes/members.js";
 import { armoryRoutes } from "./routes/armory.js";
 import { RecipeCatalog } from "./recipe-catalog.js";
 import { craftingRoutes } from "./routes/crafting.js";
+import { progressRoutes } from "./routes/progress.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -159,6 +160,7 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
         secured.register(memberRoutes);
         secured.register(armoryRoutes);
         secured.register(craftingRoutes);
+        secured.register(progressRoutes);
       });
     },
     { prefix: "/api" },
