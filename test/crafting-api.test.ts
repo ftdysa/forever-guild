@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
+import Fastify from "fastify";
+import { craftingRoutes, FIRST_BUILD_RETRY_MS } from "../src/routes/crafting.js";
+import type { RecipeCatalog } from "../src/recipe-catalog.js";
 import { buildApp } from "../src/app.js";
 import { sessionCookieName } from "../src/routes/auth.js";
 import { fakeBlizzard } from "./fake-blizzard.js";
@@ -106,6 +109,38 @@ test("large responses are compressed", async () => {
     await app.recipes!.idle();
     const res = await app.inject({ method: "GET", url: "/app.js", headers: { "accept-encoding": "gzip" }, cookies });
     assert.equal(res.headers["content-encoding"], "gzip");
+  } finally {
+    await app.close();
+  }
+});
+
+// Route-level test with a stub catalog, so the failure age is controlled without touching AppDeps.
+test("a failed first build stays unavailable for 10 minutes, then is retried", async () => {
+  let failedFor = FIRST_BUILD_RETRY_MS - 1;
+  let builds = 0;
+  const stub = {
+    current: () => null,
+    isBuilding: () => false,
+    hasFailed: () => true,
+    failedFor: () => failedFor,
+    checkBuild: async () => {
+      builds++;
+      throw new Error("still down");
+    },
+  } as unknown as RecipeCatalog;
+  const app = Fastify();
+  app.decorate("recipes", stub);
+  app.register(craftingRoutes, { prefix: "/api" });
+  await app.ready();
+  try {
+    const early = await app.inject({ method: "GET", url: "/api/crafting" });
+    assert.equal(early.json().status, "unavailable");
+    assert.equal(builds, 0);
+
+    failedFor = FIRST_BUILD_RETRY_MS;
+    const due = await app.inject({ method: "GET", url: "/api/crafting" });
+    assert.equal(due.json().status, "building");
+    assert.equal(builds, 1);
   } finally {
     await app.close();
   }

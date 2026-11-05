@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { BlizzardClient, BlizzardError, type FetchFn } from "../src/blizzard.js";
 import { fakeBlizzard } from "./fake-blizzard.js";
@@ -213,4 +213,31 @@ test("a 5xx Retry-After is honoured", async () => {
   const client = new BlizzardClient(creds, f.fetchFn, () => 0, async (ms) => void sleeps.push(ms));
   assert.deepEqual(await client.gameData("/a"), { ok: 1 });
   assert.deepEqual(sleeps, [2000]);
+});
+
+test("each attempt's timeout is bounded by the remaining budget", async () => {
+  let clock = 0;
+  let apiCalls = 0;
+  const timeouts: number[] = [];
+  const spy = mock.method(AbortSignal, "timeout", (ms: number) => {
+    timeouts.push(ms);
+    return new AbortController().signal;
+  });
+  try {
+    const fetchFn: FetchFn = async (input) => {
+      if (isToken(input)) return Response.json({ access_token: "t", expires_in: 3600 });
+      apiCalls++;
+      if (apiCalls === 1) {
+        clock += 9_000; // slow 503, then a 1 s backoff: 10 s spent, 5 s of budget left
+        return new Response("", { status: 503 });
+      }
+      return Response.json({ ok: 1 });
+    };
+    const client = new BlizzardClient(creds, fetchFn, () => clock, async (ms) => void (clock += ms));
+    assert.deepEqual(await client.gameData("/a"), { ok: 1 });
+  } finally {
+    spy.mock.restore();
+  }
+  // [0] is the token request; then the API attempts.
+  assert.deepEqual(timeouts.slice(1), [10_000, 5_000]);
 });

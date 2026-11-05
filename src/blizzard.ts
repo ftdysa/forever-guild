@@ -129,11 +129,13 @@ export class BlizzardClient {
     for (let attempt = 1; ; attempt++) {
       // Only yield when we actually have to wait, so a free slot goes straight to fetch.
       if (!this.tryTakeSlot()) await this.waitForSlot();
+      // A slot wait can eat the budget: don't start an attempt past the deadline.
+      if (this.now() >= deadline) throw new BlizzardError("blizzard api unreachable (budget)");
       let res: Response;
       try {
         res = await this.fetchFn(url, {
           headers: { ...headers, authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(TIMEOUT_MS),
+          signal: AbortSignal.timeout(Math.max(1, Math.min(TIMEOUT_MS, deadline - this.now()))),
         });
       } catch (err) {
         const label = causeLabel(err);

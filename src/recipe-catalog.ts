@@ -103,6 +103,7 @@ export class RecipeCatalog {
   private memo: { fetchedAt: number; catalog: Catalog } | null = null;
   private building: Promise<Catalog> | null = null;
   private failed = false;
+  private failedAtMs: number | null = null;
 
   constructor(
     private client: BlizzardClient,
@@ -132,15 +133,28 @@ export class RecipeCatalog {
     return this.failed;
   }
 
+  // When the most recent build failed (injected clock); null if it did not.
+  failedAt(): number | null {
+    return this.failed ? this.failedAtMs : null;
+  }
+
+  // Milliseconds since the most recent failure (injected clock); null if the last build did not fail.
+  failedFor(): number | null {
+    const at = this.failedAt();
+    return at === null ? null : this.now() - at;
+  }
+
   rebuild(): Promise<Catalog> {
     this.building ??= this.build()
       .then((catalog) => {
         this.cache.set(this.key, catalog, this.now());
         this.failed = false;
+        this.failedAtMs = null;
         return catalog;
       })
       .catch((err: unknown) => {
         this.failed = true;
+        this.failedAtMs = this.now();
         throw err;
       })
       .finally(() => {

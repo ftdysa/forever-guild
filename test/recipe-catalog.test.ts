@@ -174,3 +174,19 @@ test("craftersByRecipe joins members by known recipe, best skill first", () => {
     ],
   });
 });
+
+test("failedAt records the failure time and clears on a successful build", async () => {
+  const r = routes();
+  r["/data/wow/profession/index"] = { status: 500 };
+  const { catalog, fake } = setup(r);
+  assert.equal(catalog.failedAt(), null);
+  assert.equal(catalog.failedFor(), null);
+  await assert.rejects(catalog.checkBuild());
+  const at = catalog.failedAt();
+  assert.equal(typeof at, "number");
+  assert.ok((catalog.failedFor() ?? -1) > 0);
+  fake.state.apiDown = false;
+  (r as Record<string, unknown>)["/data/wow/profession/index"] = routes()["/data/wow/profession/index"];
+  await catalog.rebuild();
+  assert.equal(catalog.failedAt(), null);
+});
