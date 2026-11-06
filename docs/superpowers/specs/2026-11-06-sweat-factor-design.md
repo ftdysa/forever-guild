@@ -39,9 +39,11 @@ Total: 100.
 - **Percentile** = (number of guild characters with a known value ≤ this value) ÷ (number of
   guild characters with a known value). It is computed over every current guild character,
   alts included. A value of 0 always scores 0.
-- **Missing metric** (armory not read yet, or the statistics call failed): the metric is left
-  out, and the character's remaining weights are scaled up to total 100. A character with no
-  known metric has no score.
+- **Missing metric** (e.g. the statistics call failed): the metric is left out, and the
+  character's remaining weights are scaled up to total 100.
+- A character whose armory has never been read (`armory === null`) is left out entirely: it isn't
+  in any percentile population and adds nothing to its player. A player with no read character
+  has no score.
 
 ### Players (main + alts)
 
@@ -135,12 +137,14 @@ export interface SweatResult {
   breakdown: Record<SweatCategory, number>; // points per category after rescaling and multiplier, rounded to 1 decimal
   mainId: number;
 }
-export function computeSweat(members: Member[], recipeTotals: Record<string, number>, now: number): Map<number, SweatResult>;
+export interface RecipeIndex { totals: Record<string, number>; professionOf: Map<number, string> }
+export function computeSweat(members: Member[], recipes: RecipeIndex | null, now: number): Map<number, SweatResult>;
 ```
 
 - A pure function; members without a score are left out of the map.
-- `recipeTotals` maps profession id to the catalog's `total`. An empty map makes the recipe
-  metric missing.
+- `RecipeIndex` (built in `recipe-catalog.ts` by `recipeIndex(catalog)`, memoized per catalog) maps
+  profession id → catalog `total` and recipe id → profession id, so known recipes can be counted per
+  profession. `null` (no catalog, i.e. not Forever or not built yet) makes the recipe metric missing.
 
 ### Game data — `src/game-data.ts`
 
@@ -150,7 +154,7 @@ export function computeSweat(members: Member[], recipeTotals: Record<string, num
 ### API
 
 - `GET /api/members`: each member gets `altOf` and
-  `sweat: { score, tier, breakdown, main: string } | null` (`main` is the main's character
+  `sweat: { score, tier, breakdown, mainId, main: string } | null` (`main` is the main's full
   name).
 - `PUT /api/members/:id` accepts `altOf` and no longer accepts `sweatFactor`.
 - `GET /api/progress`: `leaderboard.sweat` holds the top 10 players by score (ties by main name)
@@ -160,7 +164,8 @@ export function computeSweat(members: Member[], recipeTotals: Record<string, num
 
 - **Roster:** the Sweat Factor column shows the computed tier pill, with pill colours by tier
   index (`sweat-0` … `sweat-5`). The pill's `title` and an expandable detail list show the score
-  and points per category. An alt's pill is suffixed "via <Main>". Members with no score show
+  and points per category. An alt's pill (`sweat.mainId !== id`) is suffixed "via <Main>". The
+  column is sortable by score. Members with no score show
   "—".
 - **Edit form:** the sweat dropdown is replaced by "Alt of". Its options are "—" plus every
   member that isn't an alt, excluding the member being edited.
