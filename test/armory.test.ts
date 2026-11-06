@@ -510,3 +510,11 @@ test("character carries sweat stats from the statistics endpoint, null when it i
   const without = setup();
   assert.equal((await without.armory.character("Jaina"))?.sweatStats, null);
 });
+
+test("a failed statistics call leaves sweat stats out without failing the character", async () => {
+  // 403 maps to a BlizzardError without the retries a 5xx would get.
+  const { armory } = setup({ ...characterFixture(), [`${BASE}/jaina/achievements/statistics`]: { status: 403 } });
+  const c = await armory.character("Jaina");
+  assert.ok(c);
+  assert.equal(c.sweatStats, null);
+});

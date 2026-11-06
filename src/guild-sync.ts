@@ -10,10 +10,11 @@ import type { ProgressRecorder } from "./progress.js";
 // cached and revalidated with one conditional call, so refreshing unchanged characters is cheap.
 const REFRESH_MS = ROSTER_TTL_MS;
 // Characters read from the armory at once. Each is one parallel round of profile calls (or a
-// single 304 when unchanged), so this caps in-flight Blizzard requests at roughly 4 × 9.
+// single 304 when unchanged), so this caps in-flight Blizzard requests at roughly 4 × 10.
 const ENRICH_CONCURRENCY = 4;
 
-function snapshot(c: CharacterInfo): MemberArmory {
+// A failed statistics call reads as null; keep what the member already had until it succeeds again.
+function snapshot(c: CharacterInfo, m: Member): MemberArmory {
   return {
     race: c.race,
     gender: c.gender,
@@ -26,7 +27,7 @@ function snapshot(c: CharacterInfo): MemberArmory {
     skills: c.professions?.skills ?? {},
     recipes: c.professions?.recipes ?? [],
     pvp: c.pvp,
-    sweatStats: c.sweatStats,
+    sweatStats: c.sweatStats ?? m.armory?.sweatStats ?? null,
   };
 }
 
@@ -100,7 +101,7 @@ export class GuildSync {
         // null: this flavour's armory has no professions (Classic Era), so keep what we have.
         primary: c.professions?.primary ?? m.primaryProfessions,
         secondary: c.professions?.secondary ?? m.secondaryProfessions,
-        armory: snapshot(c),
+        armory: snapshot(c, m),
       });
       // History must never break the roster refresh.
       await this.progress?.recordArmory(m, c).catch((err: unknown) => {

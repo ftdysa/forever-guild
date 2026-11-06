@@ -158,3 +158,11 @@ test("the sweat leaderboard ranks players by score and lists their alts", () => 
     { name: "Jaina", class: "mage", score: 42, tier: "damp", alts: [] },
   ]);
 });
+
+test("a dangling altOf and an alt of an alt each count as their own main", () => {
+  // Can happen after a rollback: the main row is gone, or the main was itself turned into an alt.
+  const dangling = computeSweat([member(1, { altOf: 99 })], null, NOW);
+  assert.equal(dangling.get(1)?.mainId, 1);
+  const chained = computeSweat([member(1), member(2, { altOf: 1 }), member(3, { altOf: 2 })], null, NOW);
+  assert.equal(chained.get(3)?.mainId, 3);
+});

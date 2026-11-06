@@ -559,7 +559,13 @@ export class ArmoryService {
       this.client.profile<RawStatistics>(`${base}/statistics`),
       this.client.profile<RawReputations>(`${base}/reputations`),
       this.client.profile<RawPvpSummary>(`${base}/pvp-summary`),
-      this.client.profile<RawAchievementStatistics>(`${base}/achievements/statistics`),
+      // The sweat metric is optional: if only this call fails, leave it out rather than fail the character.
+      this.client
+        .profile<RawAchievementStatistics>(`${base}/achievements/statistics`)
+        .catch((err: unknown) => {
+          if (err instanceof BlizzardError) return null;
+          throw err;
+        }),
       // Legacy challenges are achievements, and exist only on Forever.
       forever ? this.client.profile<RawAchievements>(`${base}/achievements`) : null,
       forever ? this.legacyAchievements().catch(() => null) : null,

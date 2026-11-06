@@ -273,6 +273,7 @@ test("an older members table gains alt_of and keeps its rows", () => {
   const s = new MemberStore(old);
   assert.equal(s.list()[0].characterName, "Thrall");
   assert.equal(s.list()[0].altOf, null);
+  assert.equal(old.prepare("SELECT sweat_factor FROM members").pluck().get(), "sweaty");
   old.close();
 });
 
