@@ -100,7 +100,7 @@ test("level-ups show on the next roster refresh; a chosen main spec survives", a
   await sync.sync();
   await sync.idle();
   const id = store.list()[0].id;
-  store.updateDetails(id, { mainSpec: "enhancement", backupClass: null, backupSpec: null, sweatFactor: null, levelingPref: null, notes: "" });
+  store.updateDetails(id, { mainSpec: "enhancement", backupClass: null, backupSpec: null, altOf: null, levelingPref: null, notes: "" });
   roster([rosterRow("Thrall", "thrall-durotan", 7, 21)]);
   advance(16 * 60 * 1000);
   await sync.sync();

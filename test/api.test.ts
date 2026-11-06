@@ -11,7 +11,7 @@ const PASS = "for-the-horde";
 const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
 
 // Editable details for a synced member.
-const details = { mainSpec: "restoration", backupClass: "warrior", backupSpec: "protection", sweatFactor: "casual", levelingPref: "duo", notes: "" };
+const details = { mainSpec: "restoration", backupClass: "warrior", backupSpec: "protection", altOf: null, levelingPref: "duo", notes: "" };
 
 let app: FastifyInstance;
 let cookie: Record<string, string>;
@@ -47,7 +47,7 @@ test("game-data is public", async () => {
   const res = await app.inject({ method: "GET", url: "/api/game-data" });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().classes.length, 9);
-  assert.equal(res.json().sweatFactors.length, 5);
+  assert.equal(res.json().sweatTiers.length, 6);
   assert.equal(res.json().levelingPrefs.length, 3);
 });
 
@@ -90,7 +90,7 @@ test("members can be listed and their details edited, but not created or deleted
     secondary: [],
     armory: {
       race: null, gender: null, faction: null, title: null, itemLevel: null, lastLogin: null,
-      achievementPoints: null, legacy: null, skills: {}, recipes: [2414],
+      achievementPoints: null, legacy: null, skills: {}, recipes: [2414], pvp: null, sweatStats: null,
     },
   });
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
@@ -103,7 +103,7 @@ test("members can be listed and their details edited, but not created or deleted
   const updated = await app.inject({ method: "PUT", url: `/api/members/${thrall.id}`, cookies: cookie, payload: details });
   assert.equal(updated.statusCode, 200);
   assert.equal(updated.json().mainSpec, "restoration");
-  assert.equal(updated.json().sweatFactor, "casual");
+  assert.equal(updated.json().altOf, null);
   assert.equal("recipes" in updated.json().armory, false);
   // synced fields are not editable
   const ignored = await app.inject({

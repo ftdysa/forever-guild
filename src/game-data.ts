@@ -98,12 +98,18 @@ export const PROFESSIONS: Profession[] = [
   { id: "first-aid", name: "First Aid", kind: "secondary" },
 ];
 
-export const SWEAT_FACTORS: Choice[] = [
-  { id: "meh", name: "Meh" },
-  { id: "casual", name: "Casual" },
-  { id: "interested", name: "Interested" },
-  { id: "sweaty", name: "Sweaty" },
-  { id: "world-first", name: "World First" },
+// Computed sweat tiers (src/sweat.ts), lowest first; a score at or above `min` reaches the tier.
+export interface SweatTier extends Choice {
+  min: number;
+}
+
+export const SWEAT_TIERS: SweatTier[] = [
+  { id: "bone-dry", name: "Bone Dry", min: 0 },
+  { id: "glistening", name: "Glistening", min: 15 },
+  { id: "damp", name: "Damp", min: 35 },
+  { id: "drenched", name: "Drenched", min: 55 },
+  { id: "swamp-ass", name: "Swamp Ass", min: 72 },
+  { id: "turbo-sweat", name: "Turbo Sweat", min: 88 },
 ];
 
 export const LEVELING_PREFS: Choice[] = [
@@ -124,8 +130,8 @@ export function findSpec(classId: string, specId: string): Spec | undefined {
 export function gameData(): {
   classes: GameClass[];
   professions: Profession[];
-  sweatFactors: Choice[];
+  sweatTiers: SweatTier[];
   levelingPrefs: Choice[];
 } {
-  return { classes: CLASSES, professions: PROFESSIONS, sweatFactors: SWEAT_FACTORS, levelingPrefs: LEVELING_PREFS };
+  return { classes: CLASSES, professions: PROFESSIONS, sweatTiers: SWEAT_TIERS, levelingPrefs: LEVELING_PREFS };
 }

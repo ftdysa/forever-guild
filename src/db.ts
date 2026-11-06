@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { Professions, RosterEntry } from "./armory.js";
+import type { Professions, RosterEntry, SweatStats } from "./armory.js";
 import type { MemberDetails } from "./validate.js";
 
 // A guild member: identity, class, level and professions come from the guild roster and armory;
@@ -20,6 +20,9 @@ export interface MemberArmory {
   skills: Professions["skills"];
   // Known recipe ids (crafting directory).
   recipes: number[];
+  // null until read, and on rows stored before these were kept.
+  pvp: { rank: number; honorableKills: number } | null;
+  sweatStats: SweatStats | null;
 }
 
 export interface Member extends MemberDetails {
@@ -55,6 +58,7 @@ interface Row {
   armory: string | null;
   sweat_factor: string | null;
   leveling_pref: string | null;
+  alt_of: number | null;
   notes: string;
   created_at: string;
   updated_at: string;
@@ -76,6 +80,7 @@ CREATE TABLE IF NOT EXISTS ${name} (
   armory TEXT,
   sweat_factor TEXT,
   leveling_pref TEXT,
+  alt_of INTEGER,
   notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -93,6 +98,13 @@ const IDENTITY_INDEX =
   "CREATE UNIQUE INDEX IF NOT EXISTS members_identity ON members (character_name COLLATE NOCASE, IFNULL(surname, '') COLLATE NOCASE)";
 const identity = (name: string, surname: string | null) => `${name.toLowerCase()}\u0000${(surname ?? "").toLowerCase()}`;
 
+// Rows stored before pvp and sweat stats were kept lack them. Filling them in place keeps key order,
+// so applyArmory's JSON comparison still sees an unchanged snapshot as unchanged.
+function readArmory(json: string): MemberArmory {
+  const a = JSON.parse(json) as MemberArmory;
+  return { ...a, pvp: a.pvp ?? null, sweatStats: a.sweatStats ?? null };
+}
+
 function rowToMember(r: Row): Member {
   return {
     id: r.id,
@@ -106,8 +118,8 @@ function rowToMember(r: Row): Member {
     backupSpec: r.backup_spec,
     primaryProfessions: JSON.parse(r.primary_professions) as string[],
     secondaryProfessions: JSON.parse(r.secondary_professions) as string[],
-    armory: r.armory ? (JSON.parse(r.armory) as MemberArmory) : null,
-    sweatFactor: r.sweat_factor,
+    armory: r.armory ? readArmory(r.armory) : null,
+    altOf: r.alt_of,
     levelingPref: r.leveling_pref,
     notes: r.notes,
     createdAt: r.created_at,
@@ -132,6 +144,7 @@ export class MemberStore {
     for (const col of ["surname", "armory"]) {
       if (!cols.includes(col)) this.db.exec(`ALTER TABLE members ADD COLUMN ${col} TEXT`);
     }
+    if (!cols.includes("alt_of")) this.db.exec("ALTER TABLE members ADD COLUMN alt_of INTEGER");
     this.migrateIdentity();
     this.db.exec(IDENTITY_INDEX);
   }
@@ -228,6 +241,8 @@ export class MemberStore {
       }
       const remove = this.db.prepare("DELETE FROM members WHERE id = ?");
       for (const gone of existing.values()) remove.run(gone.id);
+      // An alt whose main left becomes a main again.
+      this.db.prepare("UPDATE members SET alt_of = NULL WHERE alt_of IS NOT NULL AND alt_of NOT IN (SELECT id FROM members)").run();
       return added.map((id) => this.get(id) as Member);
     })();
   }
@@ -264,7 +279,7 @@ export class MemberStore {
     const info = this.db
       .prepare(
         `UPDATE members SET main_spec = @mainSpec, backup_class = @backupClass, backup_spec = @backupSpec,
-           sweat_factor = @sweatFactor, leveling_pref = @levelingPref, notes = @notes, updated_at = @now
+           alt_of = @altOf, leveling_pref = @levelingPref, notes = @notes, updated_at = @now
          WHERE id = @id`,
       )
       .run({ ...d, id, now: new Date().toISOString() });

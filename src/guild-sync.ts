@@ -25,6 +25,8 @@ function snapshot(c: CharacterInfo): MemberArmory {
     legacy: c.legacy,
     skills: c.professions?.skills ?? {},
     recipes: c.professions?.recipes ?? [],
+    pvp: c.pvp,
+    sweatStats: c.sweatStats,
   };
 }
 
