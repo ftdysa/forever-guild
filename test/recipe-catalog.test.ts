@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache, openDatabase, type Member } from "../src/db.js";
-import { buildOf, craftersByRecipe, RecipeCatalog, type Catalog } from "../src/recipe-catalog.js";
+import { buildOf, craftersByRecipe, recipeIndex, RecipeCatalog, type Catalog } from "../src/recipe-catalog.js";
 import { fakeBlizzard } from "./fake-blizzard.js";
 
 const self = (build: string) => ({ self: { href: `https://us.api.blizzard.com/data/wow/profession/?namespace=static-${build}-forever-us` } });
@@ -189,4 +189,17 @@ test("failedAt records the failure time and clears on a successful build", async
   (r as Record<string, unknown>)["/data/wow/profession/index"] = routes()["/data/wow/profession/index"];
   await catalog.rebuild();
   assert.equal(catalog.failedAt(), null);
+});
+
+test("recipeIndex maps professions to totals and recipes to professions, once per catalog", () => {
+  const catalog = {
+    professions: [
+      { id: "alchemy", name: "Alchemy", total: 2, categories: [{ name: "Potions", recipes: [{ id: 1 }, { id: 2 }] }] },
+      { id: "cooking", name: "Cooking", total: 1, categories: [{ name: "Food", recipes: [{ id: 9 }] }] },
+    ],
+  } as unknown as Catalog;
+  const index = recipeIndex(catalog);
+  assert.deepEqual(index.totals, { alchemy: 2, cooking: 1 });
+  assert.deepEqual([...index.professionOf], [[1, "alchemy"], [2, "alchemy"], [9, "cooking"]]);
+  assert.equal(recipeIndex(catalog), index);
 });
