@@ -43,6 +43,10 @@ npm test
 - Pushes to `main` run the same checks, then `flyctl deploy` to the
   `old-school` Fly app (`.github/workflows/deploy.yml`). Needs a
   `FLY_API_TOKEN` repo secret from `fly tokens create deploy`.
+- After a successful deploy, the merged PR's `## Release notes` section (see the PR template)
+  is posted to Discord by `scripts/release-note.mjs`. Needs a `DISCORD_WEBHOOK_URL` secret on
+  the `production` environment; an optional `SITE_URL` repo variable links the post to the site.
+  PRs without the section post nothing.
 
 ## API
 
