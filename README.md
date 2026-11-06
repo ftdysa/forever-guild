@@ -2,8 +2,8 @@
 
 The roster mirrors the guild on the WoW armory: every member of
 `BLIZZARD_GUILD` appears automatically with their class, level, professions and
-a main spec guessed from talents. Members add a backup class/spec, sweat factor,
-leveling preference and notes, and can override the guessed main spec.
+a main spec guessed from talents. Members add a backup class/spec, leveling preference,
+notes and which character is their main; a sweat factor is computed from armory data (see `docs/superpowers/specs/2026-11-06-sweat-factor-design.md`). Members can also override the guessed main spec.
 Everyone behind the guild passphrase sees the full roster and coverage counts.
 
 ## Run with Docker
@@ -51,11 +51,11 @@ All routes under `/api`. Everything except `GET /api/game-data` and
 
 | Method | Path               | Notes                               |
 |--------|--------------------|-------------------------------------|
-| GET    | /api/game-data     | classes, specs, roles, professions, sweat factors, leveling prefs |
+| GET    | /api/game-data     | classes, specs, roles, professions, sweat tiers, leveling prefs |
 | POST   | /api/login         | `{ passphrase }` → 204 + cookie     |
 | POST   | /api/logout        | clears cookie                       |
-| GET    | /api/members       | syncs with the guild, then the roster sorted by name |
-| PUT    | /api/members/:id   | edit details (`mainSpec`, `backupClass`, `backupSpec`, `sweatFactor`, `levelingPref`, `notes`) → 200 |
+| GET    | /api/members       | syncs with the guild, then the roster sorted by name; each member has `sweat` (`score`, `tier`, `breakdown`, `mainId`, `main`) or null |
+| PUT    | /api/members/:id   | edit details (`mainSpec`, `backupClass`, `backupSpec`, `altOf` (member id of their main, or null), `levelingPref`, `notes`) → 200 |
 | GET    | /api/armory/status | `{ enabled, region, namespace, realm, guild, wowheadItemUrl }`; `realm` is null on Forever |
 | GET    | /api/armory/character/:name | level, gear, talent-inferred spec, avatar; optional `?surname=` (Forever: name + surname identify a character; an ambiguous first name without a surname is a 404); 404 unknown (on Forever: not in the guild), 502 Blizzard down |
 | GET    | /api/crafting      | recipe catalog + who knows each recipe (Forever only; 404 otherwise) |

@@ -72,8 +72,7 @@ function toRecipe(r: { id: number; name: string }, raw: RawRecipe | null): Catal
 
 // Recipe id → members who know it, best skill first (unknown skill last), then by name.
 export function craftersByRecipe(catalog: Catalog, members: Member[]): Record<number, Crafter[]> {
-  const professionOf = new Map<number, string>();
-  for (const p of catalog.professions) for (const c of p.categories) for (const r of c.recipes) professionOf.set(r.id, p.id);
+  const { professionOf } = recipeIndex(catalog);
   const out: Record<number, Crafter[]> = {};
   for (const m of members) {
     for (const id of m.armory?.recipes ?? []) {
@@ -219,4 +218,23 @@ export class RecipeCatalog {
     }
     return { build: buildOf(index._links?.self?.href) ?? "unknown", builtAt: new Date(this.now()).toISOString(), professions };
   }
+}
+// What the sweat score needs from the catalog: recipes per profession, and each recipe's profession.
+export interface RecipeIndex {
+  totals: Record<string, number>;
+  professionOf: Map<number, string>;
+}
+
+const indexes = new WeakMap<Catalog, RecipeIndex>();
+
+// Built once per catalog object (RecipeCatalog.current() returns the same object until a rebuild).
+export function recipeIndex(catalog: Catalog): RecipeIndex {
+  let index = indexes.get(catalog);
+  if (!index) {
+    const professionOf = new Map<number, string>();
+    for (const p of catalog.professions) for (const c of p.categories) for (const r of c.recipes) professionOf.set(r.id, p.id);
+    index = { totals: Object.fromEntries(catalog.professions.map((p) => [p.id, p.total])), professionOf };
+    indexes.set(catalog, index);
+  }
+  return index;
 }

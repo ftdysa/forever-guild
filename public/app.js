@@ -1,5 +1,5 @@
 import { renderCrafting } from "./crafting.js";
-import { renderProgress } from "./progress.js";
+import { renderProgress, sweatTierPill } from "./progress.js";
 import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -11,7 +11,7 @@ const ICONS = {
 };
 const ROLE_LABEL = { tank: "Tank", healer: "Healer", dps: "DPS" };
 
-let game = null; // { classes, professions, sweatFactors, levelingPrefs }
+let game = null; // { classes, professions, sweatTiers, levelingPrefs }
 let members = [];
 let armory = undefined; // undefined: not loaded; null: disabled; else /api/armory/status
 let sort = { key: "rank", dir: 1 }; // roster order; ties fall back to name
@@ -65,6 +65,7 @@ const SORT_VALUES = {
   level: (m) => -m.level,
   ilvl: (m) => (m.armory?.itemLevel == null ? null : -m.armory.itemLevel),
   legacy: (m) => (m.armory?.legacy ? -m.armory.legacy.earned : null),
+  sweat: (m) => (m.sweat ? -m.sweat.score : null),
   seen: (m) => (m.armory?.lastLogin ? -Date.parse(m.armory.lastLogin) : null),
 };
 
@@ -96,10 +97,21 @@ function classCell(classId, specId) {
   return `<span class="cls" data-class="${esc(c.id)}">${esc(c.name)}</span>${badge}<br><span class="spec">${spec}</span>`;
 }
 
-function sweatCell(id) {
-  const i = game.sweatFactors.findIndex((c) => c.id === id);
-  if (i < 0) return DASH;
-  return `<span class="pill sweat-${i}">${esc(game.sweatFactors[i].name)}</span>`;
+const SWEAT_LABELS = {
+  leveling: "Leveling", gear: "Gear", professions: "Professions", dungeons: "Dungeons & Raids",
+  pvp: "PvP", reputation: "Reputation", legacy: "Legacy", questing: "Questing",
+};
+
+// Tier pill + score; opens to the points per category. Alts show their main's sweat.
+function sweatCell(m) {
+  const s = m.sweat;
+  if (!s) return DASH;
+  const parts = Object.entries(s.breakdown)
+    .map(([k, v]) => `<li>${esc(SWEAT_LABELS[k] ?? k)} <span class="muted">${esc(v)}</span></li>`)
+    .join("");
+  const title = `${s.score}/100 — ${Object.entries(s.breakdown).map(([k, v]) => `${SWEAT_LABELS[k] ?? k} ${v}`).join(" · ")}`;
+  const via = s.mainId !== m.id ? `<br><span class="muted sub">via ${esc(s.main)}</span>` : "";
+  return `<details class="sweat"><summary>${sweatTierPill(game, esc, s.tier, title)} <span class="muted">${esc(s.score)}</span></summary><ul>${parts}</ul></details>${via}`;
 }
 
 function levelingCell(id) {
@@ -338,7 +350,7 @@ function renderRoster() {
       <td data-label="iLvl">${m.armory?.itemLevel ?? DASH}</td>
       <td data-label="Legacy">${m.armory?.legacy ? `${m.armory.legacy.earned}<span class="muted">/${m.armory.legacy.total}</span>` : DASH}</td>
       <td data-label="Last Seen">${lastSeen(m.armory?.lastLogin)}</td>
-      <td data-label="Sweat Factor">${sweatCell(m.sweatFactor)}</td>
+      <td data-label="Sweat Factor">${sweatCell(m)}</td>
       <td data-label="Leveling Pref">${levelingCell(m.levelingPref)}</td>
       <td data-label="Notes">${m.notes ? esc(m.notes) : DASH}</td>
       <td class="actions">
@@ -452,7 +464,9 @@ function openDrawer(member) {
   $("#f-backup-class").value = member.backupClass ?? "";
   fillSpecs($("#f-backup-class"), $("#f-backup-spec"), { placeholder: "—" });
   $("#f-backup-spec").value = member.backupSpec ?? "";
-  $("#f-sweat").value = member.sweatFactor ?? "";
+  const mains = members.filter((x) => x.altOf === null && x.id !== member.id);
+  fillSelect($("#f-alt-of"), mains.map((x) => ({ id: String(x.id), name: fullName(x) })), { placeholder: "—" });
+  $("#f-alt-of").value = member.altOf == null ? "" : String(member.altOf);
   $("#f-leveling").value = member.levelingPref ?? "";
   $("#f-notes").value = member.notes ?? "";
   const d = $("#drawer");
@@ -472,7 +486,7 @@ function formPayload() {
     mainSpec: $("#f-main-spec").value || null,
     backupClass: $("#f-backup-class").value || null,
     backupSpec: $("#f-backup-spec").value || null,
-    sweatFactor: $("#f-sweat").value || null,
+    altOf: $("#f-alt-of").value ? Number($("#f-alt-of").value) : null,
     levelingPref: $("#f-leveling").value || null,
     notes: $("#f-notes").value,
   };
@@ -724,7 +738,6 @@ function renderExtra(c) {
 
 function initForm() {
   fillSelect($("#f-backup-class"), game.classes, { placeholder: "None" });
-  fillSelect($("#f-sweat"), game.sweatFactors, { placeholder: "—" });
   fillSelect($("#f-leveling"), game.levelingPrefs, { placeholder: "—" });
   $("#f-backup-class").addEventListener("change", () => fillSpecs($("#f-backup-class"), $("#f-backup-spec"), { placeholder: "—" }));
 }

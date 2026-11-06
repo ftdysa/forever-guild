@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { ArmoryService, inferSpec, mapProfessions, mapStats, milestoneOf, type RawItem } from "../src/armory.js";
+import { ArmoryService, inferSpec, mapProfessions, mapSweatStats, mapStats, milestoneOf, type RawItem } from "../src/armory.js";
 import { BlizzardClient } from "../src/blizzard.js";
 import { ArmoryCache } from "../src/db.js";
 import { BASE, ICONS, fakeBlizzard, characterFixture, iconSearch } from "./fake-blizzard.js";
@@ -131,8 +131,8 @@ test("all of a character's icons come from one media search", async () => {
   await armory.character("jaina");
   assert.equal(searches(fake.calls), 1);
   // per-character profile calls, one parallel round after the summary: equipment, specializations,
-  // media, statistics, reputations, pvp-summary (no professions or achievements on Classic Era)
-  assert.equal(fake.calls.filter((c) => c.startsWith(BASE)).length, 7);
+  // media, statistics, reputations, pvp-summary, achievements/statistics (no professions or Legacy achievements on Classic Era)
+  assert.equal(fake.calls.filter((c) => c.startsWith(BASE)).length, 8);
 });
 
 test("cached icons (including items without one) are not searched again", async () => {
@@ -174,7 +174,7 @@ test("icon search failures degrade to null and fill in once Blizzard recovers", 
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.gear[0].icon, ICONS[22498]);
   assert.equal(searches(fake.calls), 5);
-  assert.equal(profileCalls(fake.calls), 8);
+  assert.equal(profileCalls(fake.calls), 9);
 
   // Remaining blanks are items known to have no icon: no further searches.
   advance(20 * 60 * 1000);
@@ -224,14 +224,14 @@ test("characters are served from cache for 4 minutes, keyed case-insensitively",
 test("after 4 minutes an unchanged character costs one conditional call", async () => {
   const { armory, fake, advance } = setup();
   const first = await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 7);
+  assert.equal(profileCalls(fake.calls), 8);
   advance(30 * 24 * 60 * 60 * 1000); // long gaps are fine: there is no hard expiry
   assert.deepEqual(await armory.character("jaina"), first);
-  assert.equal(profileCalls(fake.calls), 8);
+  assert.equal(profileCalls(fake.calls), 9);
   // the 304 renewed freshness, so the next view within 4 minutes is free
   advance(3 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 8);
+  assert.equal(profileCalls(fake.calls), 9);
 });
 
 test("a character who played since is refetched in full", async () => {
@@ -242,11 +242,11 @@ test("a character who played since is refetched in full", async () => {
   fake.state.lastModified = "Fri, 16 Oct 2026 12:00:00 GMT";
   advance(20 * 60 * 1000);
   assert.equal((await armory.character("jaina"))?.itemLevel, 71);
-  assert.equal(profileCalls(fake.calls), 14);
+  assert.equal(profileCalls(fake.calls), 16);
   // and the new Last-Modified is what gets revalidated next
   advance(20 * 60 * 1000);
   await armory.character("jaina");
-  assert.equal(profileCalls(fake.calls), 15);
+  assert.equal(profileCalls(fake.calls), 17);
 });
 
 test("unknown characters are rechecked with one call after 4 minutes", async () => {
@@ -403,10 +403,10 @@ test("forever: a failed Legacy lookup leaves legacy null but the character loads
   assert.equal(c?.legacy, null);
 });
 
-test("Classic Era has no Legacy and spends no achievement calls", async () => {
+test("Classic Era has no Legacy and spends no Legacy achievement calls", async () => {
   const { armory, fake } = setup();
   assert.equal((await armory.character("jaina"))?.legacy, null);
-  assert.ok(!fake.calls.some((c) => c.includes("achievement")));
+  assert.ok(!fake.calls.some((c) => c.includes("achievement") && !c.endsWith("/statistics")));
 });
 
 test("forever: an unknown guild surfaces as an error, and a new guild never sees old data", async () => {
@@ -455,4 +455,66 @@ test("forever: completed milestone achievements come back with their dates", asy
 test("milestone achievements are empty when the lookup fails or outside Forever", async () => {
   assert.deepEqual((await setup(foreverFixture(), foreverCfg).armory.character("jaina"))?.milestoneAchievements, []);
   assert.deepEqual((await setup().armory.character("jaina"))?.milestoneAchievements, []);
+});
+
+// Trimmed from a live Forever response (suri-zeal, level 24), plus one raid kill and a zero-kill boss.
+const STATISTICS = {
+  categories: [
+    {
+      id: 130,
+      name: "Character",
+      statistics: [{ id: 1, name: "Times camped", quantity: 22 }],
+      sub_categories: [
+        { id: 147, name: "Reputation", statistics: [
+          { id: 2, name: "Most Horde factions at Exalted", quantity: 4 },
+          { id: 3, name: "Total factions encountered", quantity: 14 },
+        ] },
+      ],
+    },
+    {
+      id: 14807,
+      name: "Dungeons & Raids",
+      statistics: [{ id: 4, name: "Total 5-player dungeons entered", quantity: 5 }],
+      sub_categories: [
+        { id: 14808, name: "Boss Kills", statistics: [
+          { id: 5, name: "Rath'mael Kills (Ruins of Lordaeron)", quantity: 1 },
+          { id: 6, name: "Bazzalan kills (Ragefire Chasm)", quantity: 1 },
+          { id: 7, name: "Taragaman the Hungerer kills (Ragefire Chasm)", quantity: 0 },
+          { id: 8, name: "Ragnaros kills (Molten Core)", quantity: 2 },
+        ] },
+      ],
+    },
+    { id: 133, name: "Quests", statistics: [{ id: 9, name: "Quests completed", quantity: 190 }] },
+  ],
+};
+
+test("mapSweatStats reads dungeons, distinct boss kills, quests and reputation by name", () => {
+  assert.deepEqual(mapSweatStats(STATISTICS), {
+    dungeonsEntered: 5,
+    dungeonBossKills: 2,
+    raidBossKills: 1,
+    questsCompleted: 190,
+    exalted: 4,
+    factionsEncountered: 14,
+  });
+  assert.deepEqual(mapSweatStats({ categories: [] }), {
+    dungeonsEntered: 0, dungeonBossKills: 0, raidBossKills: 0, questsCompleted: 0, exalted: 0, factionsEncountered: 0,
+  });
+  assert.equal(mapSweatStats(null), null);
+  assert.equal(mapSweatStats({}), null);
+});
+
+test("character carries sweat stats from the statistics endpoint, null when it is missing", async () => {
+  const withStats = setup({ ...characterFixture(), [`${BASE}/jaina/achievements/statistics`]: STATISTICS });
+  assert.equal((await withStats.armory.character("Jaina"))?.sweatStats?.questsCompleted, 190);
+  const without = setup();
+  assert.equal((await without.armory.character("Jaina"))?.sweatStats, null);
+});
+
+test("a failed statistics call leaves sweat stats out without failing the character", async () => {
+  // 403 maps to a BlizzardError without the retries a 5xx would get.
+  const { armory } = setup({ ...characterFixture(), [`${BASE}/jaina/achievements/statistics`]: { status: 403 } });
+  const c = await armory.character("Jaina");
+  assert.ok(c);
+  assert.equal(c.sweatStats, null);
 });

@@ -6,7 +6,7 @@ import {
   findClass,
   findSpec,
   gameData,
-  SWEAT_FACTORS,
+  SWEAT_TIERS,
   LEVELING_PREFS,
 } from "../src/game-data.js";
 
@@ -44,8 +44,18 @@ test("findClass / findSpec", () => {
   assert.equal(findSpec("nope", "protection"), undefined);
 });
 
-test("sweat factors and leveling prefs are ordered as specified", () => {
-  assert.deepEqual(SWEAT_FACTORS.map((c) => c.id), ["meh", "casual", "interested", "sweaty", "world-first"]);
+test("sweat tiers and leveling prefs are ordered as specified", () => {
+  assert.deepEqual(
+    SWEAT_TIERS.map((t) => [t.id, t.name, t.min]),
+    [
+      ["bone-dry", "Bone Dry", 0],
+      ["glistening", "Glistening", 15],
+      ["damp", "Damp", 35],
+      ["drenched", "Drenched", 55],
+      ["swamp-ass", "Swamp Ass", 72],
+      ["turbo-sweat", "Turbo Sweat", 88],
+    ],
+  );
   assert.deepEqual(LEVELING_PREFS.map((c) => c.id), ["solo", "duo", "orgy"]);
 });
 
@@ -53,6 +63,6 @@ test("gameData returns classes, professions, and preference choices", () => {
   const d = gameData();
   assert.equal(d.classes.length, 9);
   assert.equal(d.professions.length, 12);
-  assert.equal(d.sweatFactors, SWEAT_FACTORS);
+  assert.equal(d.sweatTiers, SWEAT_TIERS);
   assert.equal(d.levelingPrefs, LEVELING_PREFS);
 });

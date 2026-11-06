@@ -1,5 +1,6 @@
 import { computeFirsts, type Firsts } from "./milestones.js";
 import { progressName } from "./progress.js";
+import type { SweatEntry } from "./sweat.js";
 import type { Milestone, Snapshot } from "./progress-store.js";
 
 export interface LevelSeries {
@@ -48,6 +49,7 @@ export interface Leaderboard {
   fastest: Standing[];
   mostFirsts: FirstsCount[];
   skills: Record<string, SkillEntry[]>;
+  sweat: SweatEntry[];
 }
 
 export interface ProgressReport {
@@ -76,7 +78,7 @@ function weekAgo(today: string): string {
   return new Date(Date.UTC(y, m - 1, d - 7)).toISOString().slice(0, 10);
 }
 
-function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Firsts, today: string): Leaderboard {
+function buildLeaderboard(byChar: Snapshot[][], current: Set<string>, firsts: Firsts, today: string): Omit<Leaderboard, "sweat"> {
   const cutoff = weekAgo(today);
   const members = byChar.filter((rows) => current.has(rows[0].name.toLowerCase()));
 
@@ -140,6 +142,7 @@ export function buildProgress(
   milestones: Milestone[],
   members: { characterName: string; surname: string | null }[],
   today: string,
+  sweat: SweatEntry[] = [],
 ): ProgressReport {
   const links = Object.fromEntries(
     members.map(({ characterName, surname }) => [progressName(characterName, surname).toLowerCase(), { characterName, surname }]),
@@ -175,6 +178,6 @@ export function buildProgress(
   const days = snapshots.map((s) => s.day).sort();
   const races = [...new Set(snapshots.map((s) => s.race).filter((r): r is string => !!r))];
   const firsts = computeFirsts(milestones, currentNames, races);
-  const leaderboard = buildLeaderboard([...byName.values()], current, firsts, today);
+  const leaderboard = { ...buildLeaderboard([...byName.values()], current, firsts, today), sweat };
   return { trackingSince: days[0] ?? null, series, pvp, firsts, leaderboard, links };
 }

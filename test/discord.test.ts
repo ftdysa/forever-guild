@@ -17,7 +17,7 @@ const thrall: Member = {
   backupSpec: "protection",
   primaryProfessions: ["alchemy", "herbalism"],
   secondaryProfessions: ["first-aid"],
-  sweatFactor: "casual",
+  altOf: null,
   levelingPref: "duo",
   notes: "secret plans",
   createdAt: "2026-10-25T12:00:00.000Z",
@@ -34,7 +34,7 @@ const bare: Member = {
   backupSpec: null,
   primaryProfessions: [],
   secondaryProfessions: [],
-  sweatFactor: null,
+  altOf: null,
   levelingPref: null,
 };
 
@@ -51,7 +51,7 @@ test("join embed has title, class colour, and named fields", () => {
       ["Level", "42"],
       ["Backup", "Warrior — Protection"],
       ["Professions", "Alchemy, Herbalism, First Aid"],
-      ["Style", "Casual · Duo"],
+      ["Style", "Duo"],
     ],
   );
 });

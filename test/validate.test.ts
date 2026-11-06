@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateDetails } from "../src/validate.js";
+import { altOfError, validateDetails } from "../src/validate.js";
 
 // Thrall's synced class is shaman; the payload holds only the editable details.
 const CLASS = "shaman";
@@ -8,7 +8,7 @@ const good = {
   mainSpec: "restoration",
   backupClass: "warrior",
   backupSpec: "protection",
-  sweatFactor: "sweaty",
+  altOf: 7,
   levelingPref: "duo",
   notes: "  raid lead  ",
 };
@@ -26,7 +26,7 @@ test("accepts a valid payload and normalizes it", () => {
     mainSpec: "restoration",
     backupClass: "warrior",
     backupSpec: "protection",
-    sweatFactor: "sweaty",
+    altOf: 7,
     levelingPref: "duo",
     notes: "raid lead",
   });
@@ -35,7 +35,7 @@ test("accepts a valid payload and normalizes it", () => {
 test("everything is optional", () => {
   const r = validate({});
   assert.ok(r.ok);
-  assert.deepEqual(r.value, { mainSpec: null, backupClass: null, backupSpec: null, sweatFactor: null, levelingPref: null, notes: "" });
+  assert.deepEqual(r.value, { mainSpec: null, backupClass: null, backupSpec: null, altOf: null, levelingPref: null, notes: "" });
 });
 
 test("rejects non-object input", () => {
@@ -66,18 +66,40 @@ test("backup fields must be a string or null", () => {
   assert.ok(errorsOf({ ...good, backupSpec: 5 }).includes("backupSpec must be a string or null"));
 });
 
-test("sweat factor and leveling pref are optional choices", () => {
+test("leveling pref is an optional choice", () => {
   for (const empty of [undefined, null, ""]) {
-    const r = validate({ ...good, sweatFactor: empty, levelingPref: empty });
+    const r = validate({ ...good, levelingPref: empty });
     assert.ok(r.ok);
-    assert.equal(r.value.sweatFactor, null);
     assert.equal(r.value.levelingPref, null);
   }
-  assert.ok(validate({ ...good, sweatFactor: "world-first", levelingPref: "orgy" }).ok);
-  assert.ok(errorsOf({ ...good, sweatFactor: "tryhard" }).includes("sweatFactor is not a known sweat factor"));
-  assert.ok(errorsOf({ ...good, sweatFactor: 3 }).includes("sweatFactor is not a known sweat factor"));
+  assert.ok(validate({ ...good, levelingPref: "orgy" }).ok);
   assert.ok(errorsOf({ ...good, levelingPref: "trio" }).includes("levelingPref is not a known leveling preference"));
   assert.ok(errorsOf({ ...good, levelingPref: ["solo"] }).includes("levelingPref is not a known leveling preference"));
+});
+
+test("altOf is a member id or empty", () => {
+  for (const empty of [undefined, null, ""]) {
+    const r = validate({ ...good, altOf: empty });
+    assert.ok(r.ok);
+    assert.equal(r.value.altOf, null);
+  }
+  for (const bad of ["7", 0, -1, 1.5, true]) {
+    assert.ok(errorsOf({ ...good, altOf: bad }).includes("altOf must be a member id or null"), String(bad));
+  }
+});
+
+test("altOfError allows one level of main → alt links", () => {
+  const members = [
+    { id: 1, altOf: null }, // main with an alt
+    { id: 2, altOf: 1 }, // alt
+    { id: 3, altOf: null }, // lone main
+  ];
+  assert.equal(altOfError(3, null, members), null);
+  assert.equal(altOfError(3, 1, members), null);
+  assert.equal(altOfError(3, 3, members), "a member cannot be their own alt");
+  assert.equal(altOfError(3, 99, members), "altOf is not a guild member");
+  assert.equal(altOfError(3, 2, members), "altOf must point at a main, not another alt");
+  assert.equal(altOfError(1, 3, members), "a member with alts cannot become an alt");
 });
 
 test("notes rules", () => {
@@ -86,5 +108,5 @@ test("notes rules", () => {
 });
 
 test("collects multiple errors at once", () => {
-  assert.ok(errorsOf({ ...good, mainSpec: "fire", sweatFactor: "x", notes: 5 }).length >= 3);
+  assert.ok(errorsOf({ ...good, mainSpec: "fire", altOf: "x", notes: 5 }).length >= 3);
 });

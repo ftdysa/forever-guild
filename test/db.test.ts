@@ -9,9 +9,9 @@ import { SessionStore } from "../src/sessions.js";
 
 const thrall: RosterMember = { name: "Thrall", surname: "Durotan", slug: "thrall-durotan", classId: "shaman", level: 14, rank: 0 };
 const jaina: RosterMember = { name: "Jaina", surname: "Proudmoore", slug: "jaina-proudmoore", classId: "mage", level: 12, rank: 3 };
-const details = { mainSpec: "frost", backupClass: "priest", backupSpec: "holy", sweatFactor: "world-first", levelingPref: "duo", notes: "portals" };
+const details = { mainSpec: "frost", backupClass: "priest", backupSpec: "holy", altOf: null, levelingPref: "duo", notes: "portals" };
 
-const ARMORY = { race: "Human", gender: "Female", faction: "alliance" as const, title: null, itemLevel: 12, lastLogin: null, achievementPoints: 0, legacy: { earned: 1, total: 65 }, skills: {}, recipes: [] };
+const ARMORY = { race: "Human", gender: "Female", faction: "alliance" as const, title: null, itemLevel: 12, lastLogin: null, achievementPoints: 0, legacy: { earned: 1, total: 65 }, skills: {}, recipes: [], pvp: null, sweatStats: null };
 
 let db: Database.Database;
 let store: MemberStore;
@@ -42,7 +42,7 @@ test("syncRoster adds newcomers with empty details, sorted by name", () => {
       primaryProfessions: [],
       secondaryProfessions: [],
       armory: null,
-      sweatFactor: null,
+      altOf: null,
       levelingPref: null,
       notes: "",
       createdAt: "",
@@ -111,10 +111,12 @@ test("a members table with a unique first name is rebuilt once, keeping every ro
   const before = raw.prepare("SELECT * FROM members").all();
 
   const s = new MemberStore(raw);
-  assert.deepEqual(raw.prepare("SELECT * FROM members").all(), before);
+  // the rebuilt table also gains alt_of (null); every other column is untouched
+  const withoutAltOf = () => (raw.prepare("SELECT * FROM members").all() as { alt_of: number | null }[]).map(({ alt_of, ...rest }) => (assert.equal(alt_of, null), rest));
+  assert.deepEqual(withoutAltOf(), before);
   assert.doesNotMatch(raw.prepare("SELECT sql FROM sqlite_master WHERE name = 'members'").pluck().get() as string, /UNIQUE/i);
   new MemberStore(raw); // idempotent
-  assert.deepEqual(raw.prepare("SELECT * FROM members").all(), before);
+  assert.deepEqual(withoutAltOf(), before);
 
   const added = s.syncRoster([{ ...bonelord, level: 30 }, antichrist]);
   assert.deepEqual(added.map((m) => m.surname), ["Antichrist"]);
@@ -213,7 +215,7 @@ test("a hand-entered roster table is rebuilt once, keeping rows and details", ()
     assert.equal(m.mainSpec, "restoration");
     assert.equal(m.notes, "warchief");
     assert.equal(m.level, 0);
-    assert.equal(m.sweatFactor, null);
+    assert.equal(m.altOf, null);
     // main_spec is nullable now
     const [fresh] = s.syncRoster([thrall, jaina]).filter((x) => x.characterName === "Jaina");
     assert.equal(fresh.mainSpec, null);
@@ -248,4 +250,37 @@ test("wipeGuildData removes members and armory cache but keeps sessions", () => 
   assert.ok(sessions.isValid(token));
   // ids restart after a wipe
   assert.equal(store.syncRoster([thrall])[0].id, 1);
+});
+
+test("altOf is stored, and cleared when the main leaves the guild", () => {
+  store.syncRoster([thrall, jaina]);
+  const [j, t] = store.list();
+  store.updateDetails(j.id, { ...details, altOf: t.id });
+  assert.equal(store.get(j.id)?.altOf, t.id);
+  store.syncRoster([jaina]);
+  assert.equal(store.get(j.id)?.altOf, null);
+});
+
+test("an older members table gains alt_of and keeps its rows", () => {
+  const old = openDatabase(":memory:");
+  old.exec(`CREATE TABLE members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, character_name TEXT NOT NULL COLLATE NOCASE, surname TEXT,
+    main_class TEXT NOT NULL, main_spec TEXT, level INTEGER NOT NULL DEFAULT 0, guild_rank INTEGER NOT NULL DEFAULT 0,
+    backup_class TEXT, backup_spec TEXT, primary_professions TEXT NOT NULL DEFAULT '[]',
+    secondary_professions TEXT NOT NULL DEFAULT '[]', armory TEXT, sweat_factor TEXT, leveling_pref TEXT,
+    notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  old.exec("INSERT INTO members (character_name, main_class, sweat_factor, created_at, updated_at) VALUES ('Thrall', 'shaman', 'sweaty', 'x', 'x')");
+  const s = new MemberStore(old);
+  assert.equal(s.list()[0].characterName, "Thrall");
+  assert.equal(s.list()[0].altOf, null);
+  assert.equal(old.prepare("SELECT sweat_factor FROM members").pluck().get(), "sweaty");
+  old.close();
+});
+
+test("armory stored before sweat stats reads pvp and sweatStats as null", () => {
+  store.syncRoster([thrall]);
+  db.prepare("UPDATE members SET armory = ?").run(JSON.stringify({ race: null, skills: {}, recipes: [] }));
+  const [m] = store.list();
+  assert.equal(m.armory?.pvp, null);
+  assert.equal(m.armory?.sweatStats, null);
 });

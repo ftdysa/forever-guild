@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { FetchFn } from "./blizzard.js";
 import type { DiscordConfig } from "./config.js";
 import type { Member } from "./db.js";
-import { findClass, findSpec, LEVELING_PREFS, PROFESSIONS, SWEAT_FACTORS } from "./game-data.js";
+import { findClass, findSpec, LEVELING_PREFS, PROFESSIONS } from "./game-data.js";
 
 export interface EmbedField {
   name: string;
@@ -46,7 +46,6 @@ export function buildJoinEmbed(m: Member, siteUrl?: string): Embed {
   const profs = [...m.primaryProfessions, ...m.secondaryProfessions].map((id) => nameOf(PROFESSIONS, id));
   if (profs.length > 0) fields.push({ name: "Professions", value: profs.join(", "), inline: false });
   const style = [
-    m.sweatFactor && nameOf(SWEAT_FACTORS, m.sweatFactor),
     m.levelingPref && nameOf(LEVELING_PREFS, m.levelingPref),
   ].filter((s): s is string => !!s);
   if (style.length > 0) fields.push({ name: "Style", value: style.join(" · "), inline: false });

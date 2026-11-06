@@ -1,11 +1,12 @@
-import { findClass, findSpec, LEVELING_PREFS, SWEAT_FACTORS, type Choice } from "./game-data.js";
+import { findClass, findSpec, LEVELING_PREFS, type Choice } from "./game-data.js";
 
 // The fields people edit; everything else on a member comes from the guild roster and armory.
 export interface MemberDetails {
   mainSpec: string | null;
   backupClass: string | null;
   backupSpec: string | null;
-  sweatFactor: string | null;
+  // Member id of this character's main; null for a main.
+  altOf: number | null;
   levelingPref: string | null;
   notes: string;
 }
@@ -52,8 +53,11 @@ export function validateDetails(input: unknown, mainClass: string): ValidationRe
     errors.push("backup cannot be the same class and spec as main");
   }
 
-  const sweatFactor = optionalChoice(raw.sweatFactor, SWEAT_FACTORS);
-  if (!sweatFactor.ok) errors.push("sweatFactor is not a known sweat factor");
+  let altOf: number | null = null;
+  if (raw.altOf !== undefined && raw.altOf !== null && raw.altOf !== "") {
+    if (typeof raw.altOf === "number" && Number.isInteger(raw.altOf) && raw.altOf > 0) altOf = raw.altOf;
+    else errors.push("altOf must be a member id or null");
+  }
   const levelingPref = optionalChoice(raw.levelingPref, LEVELING_PREFS);
   if (!levelingPref.ok) errors.push("levelingPref is not a known leveling preference");
 
@@ -69,6 +73,17 @@ export function validateDetails(input: unknown, mainClass: string): ValidationRe
   if (errors.length > 0) return { ok: false, errors };
   return {
     ok: true,
-    value: { mainSpec, backupClass, backupSpec, sweatFactor: sweatFactor.value, levelingPref: levelingPref.value, notes },
+    value: { mainSpec, backupClass, backupSpec, altOf, levelingPref: levelingPref.value, notes },
   };
+}
+
+// The alt link rules that need the roster: one level only (a main's alts can't have alts).
+export function altOfError(memberId: number, altOf: number | null, members: { id: number; altOf: number | null }[]): string | null {
+  if (altOf === null) return null;
+  if (altOf === memberId) return "a member cannot be their own alt";
+  const target = members.find((m) => m.id === altOf);
+  if (!target) return "altOf is not a guild member";
+  if (target.altOf !== null) return "altOf must point at a main, not another alt";
+  if (members.some((m) => m.altOf === memberId)) return "a member with alts cannot become an alt";
+  return null;
 }

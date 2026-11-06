@@ -11,7 +11,7 @@ const PASS = "for-the-horde";
 const config = { port: 0, dbPath: ":memory:", guildPassphrase: PASS, sessionSecret: "x".repeat(40), cookieSecure: false };
 
 // Editable details for a synced member.
-const details = { mainSpec: "restoration", backupClass: "warrior", backupSpec: "protection", sweatFactor: "casual", levelingPref: "duo", notes: "" };
+const details = { mainSpec: "restoration", backupClass: "warrior", backupSpec: "protection", altOf: null, levelingPref: "duo", notes: "" };
 
 let app: FastifyInstance;
 let cookie: Record<string, string>;
@@ -47,7 +47,7 @@ test("game-data is public", async () => {
   const res = await app.inject({ method: "GET", url: "/api/game-data" });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().classes.length, 9);
-  assert.equal(res.json().sweatFactors.length, 5);
+  assert.equal(res.json().sweatTiers.length, 6);
   assert.equal(res.json().levelingPrefs.length, 3);
 });
 
@@ -90,7 +90,7 @@ test("members can be listed and their details edited, but not created or deleted
     secondary: [],
     armory: {
       race: null, gender: null, faction: null, title: null, itemLevel: null, lastLogin: null,
-      achievementPoints: null, legacy: null, skills: {}, recipes: [2414],
+      achievementPoints: null, legacy: null, skills: {}, recipes: [2414], pvp: null, sweatStats: null,
     },
   });
   const list = await app.inject({ method: "GET", url: "/api/members", cookies: cookie });
@@ -99,12 +99,21 @@ test("members can be listed and their details edited, but not created or deleted
   // recipe ids are for the crafting route only; the member list leaves them out
   assert.ok(list.json()[0].armory);
   assert.equal("recipes" in list.json()[0].armory, false);
+  // Thrall alone: top level of a guild of one, no professions; other metrics unknown.
+  assert.deepEqual(list.json()[0].sweat, {
+    score: 63,
+    tier: "drenched",
+    mainId: thrall.id,
+    main: "Thrall Durotan",
+    breakdown: { leveling: 62.5, gear: 0, professions: 0, dungeons: 0, pvp: 0, reputation: 0, legacy: 0, questing: 0 },
+  });
 
   const updated = await app.inject({ method: "PUT", url: `/api/members/${thrall.id}`, cookies: cookie, payload: details });
   assert.equal(updated.statusCode, 200);
   assert.equal(updated.json().mainSpec, "restoration");
-  assert.equal(updated.json().sweatFactor, "casual");
+  assert.equal(updated.json().altOf, null);
   assert.equal("recipes" in updated.json().armory, false);
+  assert.equal(updated.json().sweat.score, 63);
   // synced fields are not editable
   const ignored = await app.inject({
     method: "PUT",
@@ -125,6 +134,35 @@ test("validation errors are 400 with details, checked against the synced class",
   assert.equal(res.statusCode, 400);
   assert.equal(res.json().error, "validation failed");
   assert.ok(res.json().details.includes("mainSpec does not belong to the main class"));
+});
+
+test("altOf links an alt to its main and is checked against the roster", async () => {
+  const thrallEntry = { name: "Thrall", surname: "Durotan", slug: "thrall-durotan", classId: "shaman", level: 14, rank: 0 };
+  const [rexxar] = app.store.syncRoster([thrallEntry, { name: "Rexxar", surname: "Mok", slug: "rexxar-mok", classId: "hunter", level: 5, rank: 2 }]);
+  const thrall = app.store.list().find((m) => m.characterName === "Thrall")!;
+  // The shared details carry a shaman spec; Rexxar is a hunter.
+  const put = (id: number, altOf: unknown) =>
+    app.inject({
+      method: "PUT",
+      url: `/api/members/${id}`,
+      cookies: cookie,
+      payload: { ...details, mainSpec: id === rexxar.id ? "marksmanship" : details.mainSpec, altOf },
+    });
+
+  const linked = await put(rexxar.id, thrall.id);
+  assert.equal(linked.statusCode, 200);
+  assert.equal(linked.json().altOf, thrall.id);
+  // Rexxar has no armory read yet, so he shows his main's score.
+  assert.equal(linked.json().sweat.mainId, thrall.id);
+  assert.equal(linked.json().sweat.main, "Thrall Durotan");
+
+  const errorOf = async (id: number, altOf: unknown) => (await put(id, altOf)).json().details;
+  assert.deepEqual(await errorOf(thrall.id, rexxar.id), ["altOf must point at a main, not another alt"]);
+  assert.deepEqual(await errorOf(rexxar.id, rexxar.id), ["a member cannot be their own alt"]);
+  assert.deepEqual(await errorOf(rexxar.id, 99999), ["altOf is not a guild member"]);
+  assert.deepEqual(await errorOf(rexxar.id, "x"), ["altOf must be a member id or null"]);
+
+  assert.equal((await put(rexxar.id, null)).json().altOf, null);
 });
 
 test("malformed JSON body is 400", async () => {

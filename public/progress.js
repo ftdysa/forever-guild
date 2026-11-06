@@ -154,6 +154,13 @@ function spark(history, { esc, today }) {
 }
 
 // Renders the Progress tab into `root` (#progress-panel).
+// A sweat tier's pill; `title` (already plain text) becomes its hover text when given.
+export function sweatTierPill(game, esc, id, title) {
+  const i = game.sweatTiers.findIndex((t) => t.id === id);
+  const attr = title ? ` title="${esc(title)}"` : "";
+  return `<span class="pill sweat-${i}"${attr}>${esc(game.sweatTiers[i]?.name ?? id)}</span>`;
+}
+
 export function renderProgress(root, data, state, { esc, characterName, paintClasses, game, today }) {
   const colorOf = (id) => game.classes.find((c) => c.id === id)?.color ?? "#C0C0C0";
   // Names are first name + surname; current members link to their armory through data.links.
@@ -204,10 +211,14 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
     .filter((p) => lb.skills[p.id]?.length)
     .map((p) => `<div class="lb-skill"><h4>${esc(p.name)}</h4><ol class="lb-list">${lb.skills[p.id].map((r) => `<li>${nameCell(r.name, r.class)} <span class="muted">${esc(r.skill)}</span></li>`).join("")}</ol></div>`)
     .join("");
+  const sweatiest = list(lb.sweat ?? [], "No sweat measured yet", (r) =>
+    `${nameCell(r.name, r.class)} ${sweatTierPill(game, esc, r.tier)} <span class="muted">${esc(r.score)}${r.alts.length ? ` · alts: ${r.alts.map(esc).join(", ")}` : ""}</span>`,
+  );
   root.querySelector("#leaderboard").innerHTML = `
     <section class="lb-panel lb-wide"><h3>Level standings</h3>${standings}</section>
     <section class="lb-panel"><h3>Fastest this week</h3>${list(lb.fastest, "No levels gained this week yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">+${esc(r.gained7d)} · level ${esc(r.level)}</span>`)}</section>
     <section class="lb-panel"><h3>Most guild firsts</h3>${list(lb.mostFirsts, "No firsts claimed yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">${esc(r.count)}</span>`)}</section>
+    <section class="lb-panel lb-wide"><h3>Sweatiest</h3>${sweatiest}</section>
     <section class="lb-panel lb-wide"><h3>Profession skill</h3>${skills ? `<div class="lb-skills">${skills}</div>` : empty("No profession skills recorded yet")}</section>`;
 
   // Guild firsts

@@ -100,7 +100,7 @@ test("level-ups show on the next roster refresh; a chosen main spec survives", a
   await sync.sync();
   await sync.idle();
   const id = store.list()[0].id;
-  store.updateDetails(id, { mainSpec: "enhancement", backupClass: null, backupSpec: null, sweatFactor: null, levelingPref: null, notes: "" });
+  store.updateDetails(id, { mainSpec: "enhancement", backupClass: null, backupSpec: null, altOf: null, levelingPref: null, notes: "" });
   roster([rosterRow("Thrall", "thrall-durotan", 7, 21)]);
   advance(16 * 60 * 1000);
   await sync.sync();
@@ -238,4 +238,22 @@ test("members sharing a first name sync as two characters, each with their own a
     [["The", "Antichrist", 25, "Orc"], ["The", "Bonelord", 30, "Undead"]],
   );
   assert.deepEqual(progress.snapshots().map((s) => [s.name, s.level, s.race]), [["The Antichrist", 25, "Orc"], ["The Bonelord", 30, "Undead"]]);
+});
+
+test("stored sweat stats survive a read where the statistics call failed", async () => {
+  const { store, sync, advance, r } = setup();
+  await sync.sync();
+  await sync.idle();
+  const [thrall] = store.list();
+  const kept = { dungeonsEntered: 3, dungeonBossKills: 2, raidBossKills: 0, questsCompleted: 50, exalted: 0, factionsEncountered: 10 };
+  store.applyArmory(thrall, {
+    spec: null, primary: thrall.primaryProfessions, secondary: thrall.secondaryProfessions,
+    armory: { ...thrall.armory!, sweatStats: kept },
+  });
+  assert.deepEqual(store.get(thrall.id)?.armory?.sweatStats, kept);
+  r[`${char("thrall-durotan")}/achievements/statistics`] = { status: 403 };
+  advance(16 * 60 * 1000);
+  await sync.sync();
+  await sync.idle();
+  assert.deepEqual(store.get(thrall.id)?.armory?.sweatStats, kept);
 });
