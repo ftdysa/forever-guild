@@ -98,6 +98,17 @@ export interface Reputation {
   max: number;
 }
 
+// Grind signals from the achievement statistics endpoint (dungeons, raids, quests, reputation).
+export interface SweatStats {
+  dungeonsEntered: number;
+  // Distinct bosses killed at least once.
+  dungeonBossKills: number;
+  raidBossKills: number;
+  questsCompleted: number;
+  exalted: number;
+  factionsEncountered: number;
+}
+
 export interface CharacterInfo {
   name: string;
   // Forever only.
@@ -122,6 +133,7 @@ export interface CharacterInfo {
   professions: Professions | null;
   reputations: Reputation[];
   pvp: { rank: number; honorableKills: number } | null;
+  sweatStats: SweatStats | null;
   // Forever only: Legacy challenges completed (account-wide) out of those that exist.
   legacy: { earned: number; total: number } | null;
   // Forever only: completed level-60 / 300-skill / PvP-rank achievements (account-wide), for
@@ -164,6 +176,18 @@ interface RawReputations {
 interface RawPvpSummary {
   pvp_rank?: number;
   honorable_kills?: number;
+}
+interface RawStatistic {
+  name: string;
+  quantity?: number;
+}
+interface RawStatisticCategory {
+  name: string;
+  statistics?: RawStatistic[];
+  sub_categories?: RawStatisticCategory[];
+}
+export interface RawAchievementStatistics {
+  categories?: RawStatisticCategory[];
 }
 interface RawAchievements {
   achievements?: { id: number; completed_timestamp?: number }[];
@@ -341,6 +365,33 @@ export function mapReputations(raw: RawReputations | null): Reputation[] {
   }));
 }
 
+// Boss kill statistics are named "<Boss> kills (<Instance>)"; these instances are raids.
+const CLASSIC_RAIDS = new Set([
+  "Molten Core", "Onyxia's Lair", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Temple of Ahn'Qiraj", "Naxxramas",
+]);
+
+// Statistics are read by name; one that isn't there reads as 0.
+export function mapSweatStats(raw: RawAchievementStatistics | null): SweatStats | null {
+  if (!raw?.categories) return null;
+  const groups = raw.categories.flatMap((c) => [c, ...(c.sub_categories ?? [])]);
+  const all = groups.flatMap((g) => g.statistics ?? []);
+  const value = (match: (name: string) => boolean) => all.find((s) => match(s.name))?.quantity ?? 0;
+  const bosses = groups
+    .filter((g) => g.name === "Boss Kills")
+    .flatMap((g) => g.statistics ?? [])
+    .filter((s) => (s.quantity ?? 0) > 0);
+  const instance = (name: string) => /\(([^)]+)\)\s*$/.exec(name)?.[1] ?? "";
+  const raids = bosses.filter((s) => CLASSIC_RAIDS.has(instance(s.name))).length;
+  return {
+    dungeonsEntered: value((n) => n === "Total 5-player dungeons entered"),
+    dungeonBossKills: bosses.length - raids,
+    raidBossKills: raids,
+    questsCompleted: value((n) => n === "Quests completed"),
+    exalted: value((n) => /factions at Exalted$/.test(n)),
+    factionsEncountered: value((n) => n === "Total factions encountered"),
+  };
+}
+
 export interface LegacyDefs {
   ids: number[];
   total: number;
@@ -470,8 +521,8 @@ export class ArmoryService {
   async character(name: string, surname: string | null = null): Promise<CharacterInfo | null> {
     const base = await this.characterPath(name, surname);
     if (!base) return null;
-    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements; v8 tiered skill milestone keys.
-    const key = `${this.keyPrefix}:character:v8:${base}`;
+    // Keyed by API path (realm or slug included). v4: path-based keys with Last-Modified; v5 added metadata; v6 added recipes; v7 added milestone achievements; v8 tiered skill milestone keys; v9 sweat stats.
+    const key = `${this.keyPrefix}:character:v9:${base}`;
     const hit = this.cache.get(key) as { value: CachedCharacter; fetchedAt: number } | undefined;
     if (hit && this.now() - hit.fetchedAt < CHARACTER_FRESH_MS) return hit.value.info;
 
@@ -494,12 +545,12 @@ export class ArmoryService {
     }
   }
 
-  // Everything beyond the summary, in one parallel round: up to eight profile calls plus one icon
+  // Everything beyond the summary, in one parallel round: up to nine profile calls plus one icon
   // search for uncached items. They share the summary's Last-Modified, so an unchanged character
   // skips the whole round (see character()).
   private async loadCharacter(base: string, summary: RawSummary): Promise<CharacterInfo> {
     const forever = this.cfg.namespace === "forever";
-    const [equipment, specs, media, professions, statistics, reputations, pvp, achievements, legacyDefs] = await Promise.all([
+    const [equipment, specs, media, professions, statistics, reputations, pvp, sweatStatistics, achievements, legacyDefs] = await Promise.all([
       this.client.profile<RawEquipment>(`${base}/equipment`),
       this.client.profile<RawSpecializations>(`${base}/specializations`),
       this.client.profile<RawMedia>(`${base}/character-media`),
@@ -508,6 +559,7 @@ export class ArmoryService {
       this.client.profile<RawStatistics>(`${base}/statistics`),
       this.client.profile<RawReputations>(`${base}/reputations`),
       this.client.profile<RawPvpSummary>(`${base}/pvp-summary`),
+      this.client.profile<RawAchievementStatistics>(`${base}/achievements/statistics`),
       // Legacy challenges are achievements, and exist only on Forever.
       forever ? this.client.profile<RawAchievements>(`${base}/achievements`) : null,
       forever ? this.legacyAchievements().catch(() => null) : null,
@@ -535,6 +587,7 @@ export class ArmoryService {
       professions: mapProfessions(professions),
       reputations: mapReputations(reputations),
       pvp: pvp ? { rank: pvp.pvp_rank ?? 0, honorableKills: pvp.honorable_kills ?? 0 } : null,
+      sweatStats: mapSweatStats(sweatStatistics),
       legacy: legacyDefs && achievements ? legacyProgress(legacyDefs, achievements) : null,
       milestoneAchievements: legacyDefs && achievements ? achievedMilestones(legacyDefs, achievements) : [],
       gear: items.map((i) => ({
