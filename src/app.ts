@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Config } from "./config.js";
 import { ArmoryCache, MemberStore, openDatabase } from "./db.js";
-import { ArmoryService, ROSTER_TTL_MS } from "./armory.js";
+import { ArmoryService, SYNC_EVERY_MS } from "./armory.js";
 import { BlizzardClient, type FetchFn } from "./blizzard.js";
 import { DiscordNotifier } from "./discord.js";
 import { GuildSync } from "./guild-sync.js";
@@ -84,13 +84,13 @@ export function buildApp(config: Config, deps: AppDeps = {}): FastifyInstance {
     const fromHeader = config.clientIpHeader ? req.headers[config.clientIpHeader] : undefined;
     return typeof fromHeader === "string" && fromHeader !== "" ? fromHeader : req.ip;
   });
-  // Page loads sync too; the timer catches joins and level-ups while nobody is looking. It runs as
-  // often as the roster cache expires, so each tick can see a fresh roster.
+  // Page loads sync too; the timer catches joins, level-ups and achievements while nobody is
+  // looking (the Fly machine stays running for it). The roster cache expires just before each tick.
   let syncTimer: NodeJS.Timeout | undefined;
   if (guildSync && deps.syncEveryMs !== 0) {
     syncTimer = setInterval(() => {
       guildSync.sync().catch((err: unknown) => app.log.warn({ err }, "scheduled guild sync failed"));
-    }, deps.syncEveryMs ?? ROSTER_TTL_MS);
+    }, deps.syncEveryMs ?? SYNC_EVERY_MS);
     syncTimer.unref();
   }
   // The recipe catalog is checked at startup (built if missing) and daily for a new game build.

@@ -212,24 +212,24 @@ test("Classic Era skips the professions call entirely", async () => {
 
 const profileCalls = (calls: string[]) => calls.filter((c) => c.startsWith(BASE)).length;
 
-test("characters are served from cache for 15 minutes, keyed case-insensitively", async () => {
+test("characters are served from cache for 4 minutes, keyed case-insensitively", async () => {
   const { armory, fake, advance } = setup();
   await armory.character("Jaina");
   const after = fake.calls.length;
-  advance(14 * 60 * 1000);
+  advance(3 * 60 * 1000);
   await armory.character("JAINA");
   assert.equal(fake.calls.length, after);
 });
 
-test("after 15 minutes an unchanged character costs one conditional call", async () => {
+test("after 4 minutes an unchanged character costs one conditional call", async () => {
   const { armory, fake, advance } = setup();
   const first = await armory.character("jaina");
   assert.equal(profileCalls(fake.calls), 7);
   advance(30 * 24 * 60 * 60 * 1000); // long gaps are fine: there is no hard expiry
   assert.deepEqual(await armory.character("jaina"), first);
   assert.equal(profileCalls(fake.calls), 8);
-  // the 304 renewed freshness, so the next view within 15 minutes is free
-  advance(5 * 60 * 1000);
+  // the 304 renewed freshness, so the next view within 4 minutes is free
+  advance(3 * 60 * 1000);
   await armory.character("jaina");
   assert.equal(profileCalls(fake.calls), 8);
 });
@@ -249,7 +249,7 @@ test("a character who played since is refetched in full", async () => {
   assert.equal(profileCalls(fake.calls), 15);
 });
 
-test("unknown characters are rechecked with one call after 15 minutes", async () => {
+test("unknown characters are rechecked with one call after 4 minutes", async () => {
   const { armory, fake, advance } = setup();
   assert.equal(await armory.character("nobody"), null);
   assert.equal(await armory.character("nobody"), null);
@@ -349,7 +349,7 @@ test("forever: names outside the guild are not found and cost no profile call", 
   assert.deepEqual(fake.calls.filter((c) => c.startsWith("/profile")), []);
 });
 
-test("forever: the roster is cached for 15 minutes, and served stale when Blizzard is down", async () => {
+test("forever: the roster is cached for 4 minutes, and served stale when Blizzard is down", async () => {
   const { armory, fake, advance } = setup(foreverFixture(), foreverCfg);
   await armory.character("nobody");
   await armory.character("nobody");
