@@ -129,10 +129,10 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 // Scores every player; each of their characters maps to the same result. Members never read
 // from the armory are left out of every population; a player with none read has no entry.
 export function computeSweat(members: Member[], recipes: RecipeIndex | null, now: number): Map<number, SweatResult> {
-  const read = members.filter((m): m is Member & { armory: MemberArmory } => m.armory !== null);
+  const scored = members.filter((m): m is Member & { armory: MemberArmory } => m.armory !== null);
   // Per metric: character id → normalized 0–1 value, or null when unknown.
   const normalized = METRICS.map((metric) => {
-    const raw = new Map(read.map((m) => [m.id, metric.read(m, m.armory, recipes)]));
+    const raw = new Map(scored.map((m) => [m.id, metric.read(m, m.armory, recipes)]));
     const population = [...raw.values()].filter((v): v is number => v !== null);
     return new Map(
       [...raw].map(([id, v]) => [id, v === null ? null : metric.scale === "fraction" ? v : percentile(v, population)]),
@@ -158,13 +158,13 @@ export function computeSweat(members: Member[], recipes: RecipeIndex | null, now
         .filter((d): d is string => d !== null)
         .sort()
         .pop() ?? null;
-    const scale = (100 / known) * activityMultiplier(lastLogin, now);
+    const pointsPerWeight = (100 / known) * activityMultiplier(lastLogin, now);
     const breakdown = Object.fromEntries(SWEAT_CATEGORIES.map((c) => [c, 0])) as Record<SweatCategory, number>;
     let total = 0;
     METRICS.forEach((metric, i) => {
       const v = values[i];
       if (v === null) return;
-      const points = metric.weight * v * scale;
+      const points = metric.weight * v * pointsPerWeight;
       breakdown[metric.category] += points;
       total += points;
     });

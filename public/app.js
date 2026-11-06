@@ -1,5 +1,5 @@
 import { renderCrafting } from "./crafting.js";
-import { renderProgress } from "./progress.js";
+import { renderProgress, sweatTierPill } from "./progress.js";
 import { byCoverage, classOverview } from "./class-overview.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -106,12 +106,12 @@ const SWEAT_LABELS = {
 function sweatCell(m) {
   const s = m.sweat;
   if (!s) return DASH;
-  const i = game.sweatTiers.findIndex((t) => t.id === s.tier);
   const parts = Object.entries(s.breakdown)
     .map(([k, v]) => `<li>${esc(SWEAT_LABELS[k] ?? k)} <span class="muted">${esc(v)}</span></li>`)
     .join("");
+  const title = `${s.score}/100 — ${Object.entries(s.breakdown).map(([k, v]) => `${SWEAT_LABELS[k] ?? k} ${v}`).join(" · ")}`;
   const via = s.mainId !== m.id ? `<br><span class="muted sub">via ${esc(s.main)}</span>` : "";
-  return `<details class="sweat"><summary><span class="pill sweat-${i}">${esc(game.sweatTiers[i]?.name ?? s.tier)}</span> <span class="muted">${esc(s.score)}</span></summary><ul>${parts}</ul></details>${via}`;
+  return `<details class="sweat"><summary>${sweatTierPill(game, esc, s.tier, title)} <span class="muted">${esc(s.score)}</span></summary><ul>${parts}</ul></details>${via}`;
 }
 
 function levelingCell(id) {
