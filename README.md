@@ -69,7 +69,7 @@ With `BLIZZARD_*` set (see `.env.example`), the roster is the guild's roster and
 character names open an armory view with gear, item level, and a spec guessed
 from talent points. Without it the roster stays empty.
 
-The roster syncs when someone loads it and every 15 minutes while the server
+The roster syncs when someone loads it and every 5 minutes while the server
 runs. Newcomers are added, levels and ranks updated, and characters who left
 the guild are removed along with their details. Each member's spec,
 professions (with skill), race, title, item level, last login, achievement
@@ -86,8 +86,8 @@ skill bars and Legacy progress. Legacy challenges are found by reading every
 achievement definition (static data, cached for a week) and keeping those whose
 reward is a Legacy Point; a character's count is account-wide. Armory data only
 fills an empty main spec, so a spec chosen on the site sticks. On Fly the
-machine stops when idle, so syncs (and join announcements) wait for the next
-visit unless `min_machines_running = 1`.
+machine is kept running (`auto_stop_machines = 'off'`) so the background sync,
+and with it milestone and join announcements, never waits for a visit.
 
 WoW Forever (`BLIZZARD_NAMESPACE=forever`) has no realms: characters are
 addressed as `name-surname`. Two members may share a first name; the roster, armory lookups and progress history tell them apart by surname.
@@ -96,8 +96,8 @@ so armory lookups only cover members of `BLIZZARD_GUILD`.
 
 - Calls go server-side with client credentials; the secret never reaches the browser.
 - Responses are cached in SQLite:
-  - Guild roster: 15 minutes.
-  - Characters: no hard expiry. After 15 minutes a view sends one conditional
+  - Guild roster: 4 minutes (just under the sync interval).
+  - Characters: no hard expiry. After 4 minutes a view sends one conditional
     request (`If-Modified-Since`, which Blizzard ties to the character's last
     login). 304 keeps the cache; 200 means they played, and the character is
     refetched in one parallel round (up to 8 profile calls + 1 icon search).

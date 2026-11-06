@@ -18,12 +18,15 @@ const CLASS_BY_BLIZZARD_ID: Record<number, string> = {
   11: "druid",
 };
 
-// The guild roster drives the site's member list (and, on Forever, name-surname slugs), so it is
-// refreshed often enough that joins, leaves and level-ups show up quickly.
-export const ROSTER_TTL_MS = 15 * 60 * 1000;
+// The background guild sync runs this often, so new achievements and level-ups are caught quickly.
+export const SYNC_EVERY_MS = 5 * 60 * 1000;
+// The guild roster drives the site's member list (and, on Forever, name-surname slugs). It, and
+// cached characters, go stale a little before the next sync tick, so timer jitter never makes a
+// tick reuse the previous tick's data.
+export const ROSTER_TTL_MS = 4 * 60 * 1000;
 // Cached characters are served as-is for this long, then revalidated with one conditional
 // request (see character()). There is no hard expiry: unchanged characters stay cached.
-const CHARACTER_FRESH_MS = 15 * 60 * 1000;
+const CHARACTER_FRESH_MS = ROSTER_TTL_MS;
 // Legacy challenge definitions (static game data) change only with patches.
 const LEGACY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const LEGACY_REWARD = /legacy point/i;

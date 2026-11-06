@@ -6,7 +6,7 @@ import type { Member, MemberArmory, MemberStore, RosterMember } from "./db.js";
 import type { DiscordNotifier } from "./discord.js";
 import type { ProgressRecorder } from "./progress.js";
 
-// Every member's spec and professions are re-read once per roster refresh. Character lookups are
+// Every member's spec and professions are re-read once per roster refresh (each sync tick). Character lookups are
 // cached and revalidated with one conditional call, so refreshing unchanged characters is cheap.
 const REFRESH_MS = ROSTER_TTL_MS;
 // Characters read from the armory at once. Each is one parallel round of profile calls (or a
