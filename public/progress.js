@@ -204,10 +204,18 @@ export function renderProgress(root, data, state, { esc, characterName, paintCla
     .filter((p) => lb.skills[p.id]?.length)
     .map((p) => `<div class="lb-skill"><h4>${esc(p.name)}</h4><ol class="lb-list">${lb.skills[p.id].map((r) => `<li>${nameCell(r.name, r.class)} <span class="muted">${esc(r.skill)}</span></li>`).join("")}</ol></div>`)
     .join("");
+  const tierPill = (id) => {
+    const i = game.sweatTiers.findIndex((t) => t.id === id);
+    return `<span class="pill sweat-${i}">${esc(game.sweatTiers[i]?.name ?? id)}</span>`;
+  };
+  const sweatiest = list(lb.sweat ?? [], "No sweat measured yet", (r) =>
+    `${nameCell(r.name, r.class)} ${tierPill(r.tier)} <span class="muted">${esc(r.score)}${r.alts.length ? ` · alts: ${r.alts.map(esc).join(", ")}` : ""}</span>`,
+  );
   root.querySelector("#leaderboard").innerHTML = `
     <section class="lb-panel lb-wide"><h3>Level standings</h3>${standings}</section>
     <section class="lb-panel"><h3>Fastest this week</h3>${list(lb.fastest, "No levels gained this week yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">+${esc(r.gained7d)} · level ${esc(r.level)}</span>`)}</section>
     <section class="lb-panel"><h3>Most guild firsts</h3>${list(lb.mostFirsts, "No firsts claimed yet", (r) => `${nameCell(r.name, r.class)} <span class="muted">${esc(r.count)}</span>`)}</section>
+    <section class="lb-panel lb-wide"><h3>Sweatiest</h3>${sweatiest}</section>
     <section class="lb-panel lb-wide"><h3>Profession skill</h3>${skills ? `<div class="lb-skills">${skills}</div>` : empty("No profession skills recorded yet")}</section>`;
 
   // Guild firsts
